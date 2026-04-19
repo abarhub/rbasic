@@ -1,4 +1,4 @@
-use rbasic::ast::{Expr, Op, Statement};
+use rbasic::ast::{Expr, Op, Statement, UnaryOp};
 use rbasic::parser::parse;
 
 fn stmt(source: &str) -> Statement {
@@ -286,4 +286,108 @@ fn test_expr_concat_variables() {
 fn test_affectation_avec_expression() {
     let s = stmt("X = 2 + 3");
     assert!(matches!(s, Statement::Let { var, value: Expr::BinOp { op: Op::Add, .. } } if var == "X"));
+}
+
+// --- Opérateurs unaires ---
+
+fn unary_expr(source: &str) -> (UnaryOp, Box<Expr>) {
+    match stmt(source) {
+        Statement::Print { mut values } => match values.remove(0) {
+            Expr::UnaryOp { op, operand } => (op, operand),
+            _ => panic!("expected UnaryOp"),
+        },
+        _ => panic!("expected Print"),
+    }
+}
+
+#[test]
+fn test_unaire_negatif_litteral() {
+    let (op, operand) = unary_expr("PRINT -5");
+    assert!(matches!(op, UnaryOp::Neg));
+    assert!(matches!(*operand, Expr::Integer(5)));
+}
+
+#[test]
+fn test_unaire_negatif_variable() {
+    let (op, operand) = unary_expr("PRINT -X");
+    assert!(matches!(op, UnaryOp::Neg));
+    assert!(matches!(*operand, Expr::Variable(ref v) if v == "X"));
+}
+
+#[test]
+fn test_unaire_positif() {
+    let (op, operand) = unary_expr("PRINT +5");
+    assert!(matches!(op, UnaryOp::Pos));
+    assert!(matches!(*operand, Expr::Integer(5)));
+}
+
+#[test]
+fn test_unaire_double_negatif() {
+    // --5 = -(-5)
+    let (op, operand) = unary_expr("PRINT --5");
+    assert!(matches!(op, UnaryOp::Neg));
+    assert!(matches!(*operand, Expr::UnaryOp { op: UnaryOp::Neg, .. }));
+}
+
+#[test]
+fn test_not_litteral() {
+    let (op, operand) = unary_expr("PRINT NOT 0");
+    assert!(matches!(op, UnaryOp::Not));
+    assert!(matches!(*operand, Expr::Integer(0)));
+}
+
+#[test]
+fn test_not_expression() {
+    let (op, _) = unary_expr("PRINT NOT X < 5");
+    assert!(matches!(op, UnaryOp::Not));
+}
+
+#[test]
+fn test_affectation_negatif() {
+    let s = stmt("X = -10");
+    assert!(matches!(s, Statement::Let { var, value: Expr::UnaryOp { op: UnaryOp::Neg, .. } } if var == "X"));
+}
+
+// --- Opérateurs logiques AND / OR / XOR ---
+
+#[test]
+fn test_and() {
+    let (op, _, _) = binop("PRINT X AND Y");
+    assert!(matches!(op, Op::And));
+}
+
+#[test]
+fn test_or() {
+    let (op, _, _) = binop("PRINT X OR Y");
+    assert!(matches!(op, Op::Or));
+}
+
+#[test]
+fn test_xor() {
+    let (op, _, _) = binop("PRINT X XOR Y");
+    assert!(matches!(op, Op::Xor));
+}
+
+#[test]
+fn test_precedence_not_avant_and() {
+    // NOT X AND Y  doit être (NOT X) AND Y
+    let (op, l, _) = binop("PRINT NOT X AND Y");
+    assert!(matches!(op, Op::And));
+    assert!(matches!(*l, Expr::UnaryOp { op: UnaryOp::Not, .. }));
+}
+
+#[test]
+fn test_precedence_and_avant_or() {
+    // X OR Y AND Z  doit être X OR (Y AND Z)
+    let (op, _, r) = binop("PRINT X OR Y AND Z");
+    assert!(matches!(op, Op::Or));
+    assert!(matches!(*r, Expr::BinOp { op: Op::And, .. }));
+}
+
+#[test]
+fn test_precedence_or_avant_xor() {
+    // X XOR Y OR Z  doit être X XOR (Y OR Z)
+    let (op, _, r) = binop("PRINT X XOR Y OR Z");
+    assert!(matches!(op, Op::Xor));
+    assert!(matches!(*r, Expr::BinOp { op: Op::Or, .. }));
 }
