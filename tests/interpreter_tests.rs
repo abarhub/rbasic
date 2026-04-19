@@ -343,3 +343,116 @@ fn test_precedence_not_avant_and() {
     // (NOT 0) AND -1 = (-1) AND (-1) = -1
     assert_eq!(run_program("PRINT NOT 0 AND -1"), "-1\n");
 }
+
+// --- GOTO et labels ---
+
+#[test]
+fn test_goto_line_number() {
+    let src = "10 X = 1\n20 GOTO 40\n30 X = 2\n40 PRINT X";
+    assert_eq!(run_program(src), "1\n");
+}
+
+#[test]
+fn test_goto_label() {
+    let src = "X = 1\nGOTO fin\nX = 2\nfin:\nPRINT X";
+    assert_eq!(run_program(src), "1\n");
+}
+
+// --- IF / THEN / ELSE ---
+
+#[test]
+fn test_if_then_vrai() {
+    assert_eq!(run_program("IF 1 THEN PRINT \"oui\""), "oui\n");
+}
+
+#[test]
+fn test_if_then_faux() {
+    assert_eq!(run_program("IF 0 THEN PRINT \"oui\"\nPRINT \"non\""), "non\n");
+}
+
+#[test]
+fn test_if_then_else_vrai() {
+    assert_eq!(run_program("IF 1 THEN PRINT \"oui\" ELSE PRINT \"non\""), "oui\n");
+}
+
+#[test]
+fn test_if_then_else_faux() {
+    assert_eq!(run_program("IF 0 THEN PRINT \"oui\" ELSE PRINT \"non\""), "non\n");
+}
+
+#[test]
+fn test_if_avec_comparaison() {
+    let src = "X = 5\nIF X > 3 THEN PRINT \"grand\" ELSE PRINT \"petit\"";
+    assert_eq!(run_program(src), "grand\n");
+}
+
+#[test]
+fn test_if_affectation_then() {
+    let src = "X = 10\nIF X = 10 THEN Y = 99\nPRINT Y";
+    assert_eq!(run_program(src), "99\n");
+}
+
+// --- FOR / NEXT ---
+
+#[test]
+fn test_for_simple() {
+    let src = "FOR I = 1 TO 3\nPRINT I\nNEXT I";
+    assert_eq!(run_program(src), "1\n2\n3\n");
+}
+
+#[test]
+fn test_for_step_2() {
+    let src = "FOR I = 0 TO 6 STEP 2\nPRINT I\nNEXT I";
+    assert_eq!(run_program(src), "0\n2\n4\n6\n");
+}
+
+#[test]
+fn test_for_step_negatif() {
+    let src = "FOR I = 3 TO 1 STEP -1\nPRINT I\nNEXT I";
+    assert_eq!(run_program(src), "3\n2\n1\n");
+}
+
+#[test]
+fn test_for_zero_iteration() {
+    // FROM > TO avec step positif : boucle non exécutée
+    let src = "FOR I = 5 TO 1\nPRINT I\nNEXT I\nPRINT \"fin\"";
+    assert_eq!(run_program(src), "fin\n");
+}
+
+#[test]
+fn test_for_next_sans_var() {
+    let src = "FOR I = 1 TO 3\nPRINT I\nNEXT";
+    assert_eq!(run_program(src), "1\n2\n3\n");
+}
+
+#[test]
+fn test_for_accumulation() {
+    let src = "S = 0\nFOR I = 1 TO 5\nS = S + I\nNEXT I\nPRINT S";
+    assert_eq!(run_program(src), "15\n");
+}
+
+#[test]
+fn test_for_imbriques() {
+    let src = "FOR I = 1 TO 2\nFOR J = 1 TO 2\nPRINT I\nNEXT J\nNEXT I";
+    assert_eq!(run_program(src), "1\n1\n2\n2\n");
+}
+
+// --- WHILE / WEND ---
+
+#[test]
+fn test_while_simple() {
+    let src = "X = 1\nWHILE X <= 3\nPRINT X\nX = X + 1\nWEND";
+    assert_eq!(run_program(src), "1\n2\n3\n");
+}
+
+#[test]
+fn test_while_zero_iteration() {
+    let src = "X = 0\nWHILE X > 0\nPRINT X\nWEND\nPRINT \"fin\"";
+    assert_eq!(run_program(src), "fin\n");
+}
+
+#[test]
+fn test_while_compte_a_rebours() {
+    let src = "N = 3\nWHILE N > 0\nPRINT N\nN = N - 1\nWEND";
+    assert_eq!(run_program(src), "3\n2\n1\n");
+}

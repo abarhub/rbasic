@@ -25,16 +25,28 @@ pub enum Expr {
 }
 
 #[derive(Debug, Clone)]
+pub enum JumpTarget {
+    LineNumber(u64),
+    Label(String),
+}
+
+#[derive(Debug, Clone)]
 pub enum Statement {
     Let   { var: String, value: Expr },
     Dim   { var: String, size: usize },
     Print { values: Vec<Expr> },
-    Rem,  // commentaire, ignoré à l'exécution
+    Rem,
+    Label(String),
+    Goto(JumpTarget),
+    If { cond: Expr, then_stmt: Box<Statement>, else_stmt: Option<Box<Statement>> },
+    For  { var: String, from: Expr, to: Expr, step: Option<Expr> },
+    Next { var: Option<String> },
+    While { cond: Expr },
+    Wend,
 }
 
 #[derive(Debug, Clone)]
 pub struct Line {
-    #[allow(dead_code)]
     pub number: Option<u64>,
     pub statement: Statement,
 }

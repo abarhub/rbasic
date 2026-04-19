@@ -176,8 +176,100 @@ fn rem_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
         .to(Statement::Rem)
 }
 
+fn jump_target() -> impl Parser<char, JumpTarget, Error = Simple<char>> {
+    text::int(10)
+        .map(|s: String| JumpTarget::LineNumber(s.parse::<u64>().unwrap()))
+        .or(text::ident().map(JumpTarget::Label))
+}
+
+fn goto_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("GOTO")
+        .ignore_then(hspace())
+        .ignore_then(jump_target())
+        .map(Statement::Goto)
+}
+
+fn label_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::ident()
+        .then_ignore(hspace())
+        .then_ignore(just(':'))
+        .map(Statement::Label)
+}
+
+fn for_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    let step = hspace()
+        .ignore_then(text::keyword("STEP"))
+        .ignore_then(hspace())
+        .ignore_then(expr());
+
+    text::keyword("FOR")
+        .ignore_then(hspace())
+        .ignore_then(var_name())
+        .then_ignore(hspace())
+        .then_ignore(just('='))
+        .then_ignore(hspace())
+        .then(expr())
+        .then_ignore(hspace())
+        .then_ignore(text::keyword("TO"))
+        .then_ignore(hspace())
+        .then(expr())
+        .then(step.or_not())
+        .map(|(((var, from), to), step)| Statement::For { var, from, to, step })
+}
+
+fn next_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("NEXT")
+        .ignore_then(
+            hspace().ignore_then(var_name()).or_not()
+        )
+        .map(|var| Statement::Next { var })
+}
+
+fn while_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("WHILE")
+        .ignore_then(hspace())
+        .ignore_then(expr())
+        .map(|cond| Statement::While { cond })
+}
+
+fn wend_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("WEND").to(Statement::Wend)
+}
+
 fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
-    rem_stmt().or(dim_stmt()).or(print_stmt()).or(assign_stmt())
+    recursive(|stmt_rec| {
+        let if_stmt = text::keyword("IF")
+            .ignore_then(hspace())
+            .ignore_then(expr())
+            .then_ignore(hspace())
+            .then_ignore(text::keyword("THEN"))
+            .then_ignore(hspace())
+            .then(stmt_rec.clone())
+            .then(
+                hspace()
+                    .ignore_then(text::keyword("ELSE"))
+                    .ignore_then(hspace())
+                    .ignore_then(stmt_rec)
+                    .or_not()
+            )
+            .map(|((cond, then_stmt), else_stmt)| Statement::If {
+                cond,
+                then_stmt: Box::new(then_stmt),
+                else_stmt: else_stmt.map(Box::new),
+            });
+
+        rem_stmt()
+            .or(dim_stmt())
+            .or(print_stmt())
+            .or(for_stmt())
+            .or(next_stmt())
+            .or(while_stmt())
+            .or(wend_stmt())
+            .or(goto_stmt())
+            .or(if_stmt)
+            .or(label_stmt())
+            .or(assign_stmt())
+    })
 }
 
 fn line() -> impl Parser<char, Line, Error = Simple<char>> {
