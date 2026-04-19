@@ -16,23 +16,80 @@ fn string_lit() -> impl Parser<char, String, Error = Simple<char>> {
         .map(|chars| chars.into_iter().collect())
 }
 
-// Identifiant avec $ optionnel en suffixe pour les variables chaînes
 fn var_name() -> impl Parser<char, String, Error = Simple<char>> {
     text::ident()
         .then(just('$').or_not())
         .map(|(name, dollar): (String, Option<char>)| {
-            if dollar.is_some() {
-                format!("{}$", name)
-            } else {
-                name
-            }
+            if dollar.is_some() { format!("{}$", name) } else { name }
         })
 }
 
+// Grammaire des expressions avec précédence :
+//   comparaison = addition (op_cmp addition)?
+//   addition    = multiplication ((+ | -) multiplication)*
+//   multiplié   = atom ((* | / | %) atom)*
+//   atom        = littéral | variable | '(' comparaison ')'
 fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
-    string_lit().map(Expr::StringLit)
-        .or(integer().map(Expr::Integer))
-        .or(var_name().map(Expr::Variable))
+    recursive(|expr_rec| {
+        let atom = string_lit().map(Expr::StringLit)
+            .or(integer().map(Expr::Integer))
+            .or(var_name().map(Expr::Variable))
+            .or(just('(')
+                .ignore_then(hspace())
+                .ignore_then(expr_rec)
+                .then_ignore(hspace())
+                .then_ignore(just(')')))
+            .boxed();
+
+        let mul_op = just('*').to(Op::Mul)
+            .or(just('/').to(Op::Div))
+            .or(just('%').to(Op::Mod));
+
+        let mul = atom.clone()
+            .then(
+                hspace()
+                    .ignore_then(mul_op)
+                    .then_ignore(hspace())
+                    .then(atom)
+                    .repeated()
+            )
+            .foldl(|l, (op, r)| Expr::BinOp { op, left: Box::new(l), right: Box::new(r) })
+            .boxed();
+
+        let add_op = just('+').to(Op::Add).or(just('-').to(Op::Sub));
+
+        let add = mul.clone()
+            .then(
+                hspace()
+                    .ignore_then(add_op)
+                    .then_ignore(hspace())
+                    .then(mul)
+                    .repeated()
+            )
+            .foldl(|l, (op, r)| Expr::BinOp { op, left: Box::new(l), right: Box::new(r) })
+            .boxed();
+
+        // Les opérateurs multi-chars sont essayés avant les opérateurs simples
+        let cmp_op = just('<').then(just('>')).to(Op::Ne)
+            .or(just('<').then(just('=')).to(Op::Le))
+            .or(just('>').then(just('=')).to(Op::Ge))
+            .or(just('<').to(Op::Lt))
+            .or(just('>').to(Op::Gt))
+            .or(just('=').to(Op::Eq));
+
+        add.clone()
+            .then(
+                hspace()
+                    .ignore_then(cmp_op)
+                    .then_ignore(hspace())
+                    .then(add)
+                    .or_not()
+            )
+            .map(|(l, rest)| match rest {
+                Some((op, r)) => Expr::BinOp { op, left: Box::new(l), right: Box::new(r) },
+                None => l,
+            })
+    })
 }
 
 fn assign_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {

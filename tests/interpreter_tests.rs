@@ -125,3 +125,124 @@ fn test_mixed_numbered_unnumbered_lines() {
     let src = "10 X = 5\nPRINT X";
     assert_eq!(run_program(src), "5\n");
 }
+
+// --- Expressions arithmétiques ---
+
+#[test]
+fn test_addition() {
+    assert_eq!(run_program("PRINT 2 + 3"), "5\n");
+}
+
+#[test]
+fn test_soustraction() {
+    assert_eq!(run_program("PRINT 10 - 4"), "6\n");
+}
+
+#[test]
+fn test_multiplication() {
+    assert_eq!(run_program("PRINT 3 * 5"), "15\n");
+}
+
+#[test]
+fn test_division() {
+    assert_eq!(run_program("PRINT 10 / 3"), "3\n");
+}
+
+#[test]
+fn test_modulo() {
+    assert_eq!(run_program("PRINT 10 % 3"), "1\n");
+}
+
+#[test]
+fn test_priorite_mul_sur_add() {
+    assert_eq!(run_program("PRINT 2 + 3 * 4"), "14\n");
+}
+
+#[test]
+fn test_parentheses() {
+    assert_eq!(run_program("PRINT (2 + 3) * 4"), "20\n");
+}
+
+#[test]
+fn test_expression_avec_variables() {
+    assert_eq!(run_program("X = 6\nY = 7\nPRINT X * Y"), "42\n");
+}
+
+#[test]
+fn test_affectation_expression() {
+    assert_eq!(run_program("X = 2 + 3\nPRINT X"), "5\n");
+}
+
+// --- Comparaisons entières (résultat : -1 vrai, 0 faux) ---
+
+#[test]
+fn test_egal_vrai() {
+    assert_eq!(run_program("PRINT 5 = 5"), "-1\n");
+}
+
+#[test]
+fn test_egal_faux() {
+    assert_eq!(run_program("PRINT 5 = 6"), "0\n");
+}
+
+#[test]
+fn test_different_vrai() {
+    assert_eq!(run_program("PRINT 5 <> 6"), "-1\n");
+}
+
+#[test]
+fn test_inferieur_vrai() {
+    assert_eq!(run_program("PRINT 3 < 5"), "-1\n");
+}
+
+#[test]
+fn test_inferieur_faux() {
+    assert_eq!(run_program("PRINT 5 < 3"), "0\n");
+}
+
+#[test]
+fn test_superieur_vrai() {
+    assert_eq!(run_program("PRINT 5 > 3"), "-1\n");
+}
+
+#[test]
+fn test_inferieur_egal_vrai() {
+    assert_eq!(run_program("PRINT 5 <= 5"), "-1\n");
+}
+
+#[test]
+fn test_superieur_egal_faux() {
+    assert_eq!(run_program("PRINT 3 >= 5"), "0\n");
+}
+
+#[test]
+fn test_comparaison_avec_variable() {
+    assert_eq!(run_program("X = 10\nPRINT X > 5"), "-1\n");
+}
+
+// --- Concaténation de chaînes ---
+
+#[test]
+fn test_concat_litteraux() {
+    assert_eq!(run_program(r#"PRINT "bon" + "jour""#), "bonjour\n");
+}
+
+#[test]
+fn test_concat_variables() {
+    assert_eq!(run_program("A$ = \"bon\"\nB$ = \"jour\"\nPRINT A$ + B$"), "bonjour\n");
+}
+
+#[test]
+fn test_concat_variable_et_litteral() {
+    assert_eq!(run_program("NOM$ = \"Alice\"\nPRINT \"Bonjour \" + NOM$"), "Bonjour Alice\n");
+}
+
+#[test]
+fn test_concat_chaine_triple() {
+    assert_eq!(run_program(r#"PRINT "a" + "b" + "c""#), "abc\n");
+}
+
+#[test]
+fn test_affectation_concat() {
+    assert_eq!(run_program("A$ = \"bon\"\nA$ = A$ + \"jour\"\nPRINT A$"), "bonjour\n");
+}
