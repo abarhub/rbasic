@@ -591,3 +591,68 @@ fn test_tableau_str_2d() {
     let src = "DIM G$(1, 1)\nG$(0, 0) = \"TL\"\nG$(0, 1) = \"TR\"\nG$(1, 0) = \"BL\"\nG$(1, 1) = \"BR\"\nPRINT G$(0, 0), G$(1, 1)";
     assert_eq!(run_program(src), "TL BR\n");
 }
+
+// --- SUB / END SUB / CALL ---
+
+#[test]
+fn test_sub_appel_simple() {
+    let src = "CALL Bonjour\nGOTO fin\nSUB Bonjour\n    PRINT \"bonjour\"\nEND SUB\nfin:";
+    assert_eq!(run_program(src), "bonjour\n");
+}
+
+#[test]
+fn test_sub_param_entier() {
+    let src = "CALL Double(5)\nGOTO fin\nSUB Double(N)\n    PRINT N * 2\nEND SUB\nfin:";
+    assert_eq!(run_program(src), "10\n");
+}
+
+#[test]
+fn test_sub_param_chaine() {
+    let src = "CALL Saluer(\"Alice\")\nGOTO fin\nSUB Saluer(NOM$)\n    PRINT \"Bonjour \" + NOM$\nEND SUB\nfin:";
+    assert_eq!(run_program(src), "Bonjour Alice\n");
+}
+
+#[test]
+fn test_sub_plusieurs_params() {
+    let src = "CALL Somme(3, 4)\nGOTO fin\nSUB Somme(A, B)\n    PRINT A + B\nEND SUB\nfin:";
+    assert_eq!(run_program(src), "7\n");
+}
+
+#[test]
+fn test_sub_appels_multiples() {
+    let src = "CALL Inc(1)\nCALL Inc(2)\nCALL Inc(3)\nGOTO fin\nSUB Inc(N)\n    PRINT N\nEND SUB\nfin:";
+    assert_eq!(run_program(src), "1\n2\n3\n");
+}
+
+#[test]
+fn test_sub_variables_locales() {
+    // X dans le SUB ne modifie pas X dans le programme principal
+    let src = "X = 100\nCALL ModX\nPRINT X\nGOTO fin\nSUB ModX\n    X = 999\nEND SUB\nfin:";
+    assert_eq!(run_program(src), "100\n");
+}
+
+#[test]
+fn test_sub_retour_correct() {
+    let src = "PRINT \"avant\"\nCALL Milieu\nPRINT \"apres\"\nGOTO fin\nSUB Milieu\n    PRINT \"dans sub\"\nEND SUB\nfin:";
+    assert_eq!(run_program(src), "avant\ndans sub\napres\n");
+}
+
+#[test]
+fn test_sub_avec_boucle() {
+    let src = "CALL Compte(3)\nGOTO fin\nSUB Compte(N)\n    FOR I = 1 TO N\n        PRINT I\n    NEXT I\nEND SUB\nfin:";
+    assert_eq!(run_program(src), "1\n2\n3\n");
+}
+
+#[test]
+fn test_sub_imbriques() {
+    // Un SUB appelle un autre SUB
+    let src = "CALL A\nGOTO fin\nSUB A\n    PRINT \"debut A\"\n    CALL B\n    PRINT \"fin A\"\nEND SUB\nSUB B\n    PRINT \"dans B\"\nEND SUB\nfin:";
+    assert_eq!(run_program(src), "debut A\ndans B\nfin A\n");
+}
+
+#[test]
+fn test_sub_corps_saute_si_non_appele() {
+    // Le corps du SUB n'est pas exécuté si on ne l'appelle pas
+    let src = "PRINT \"main\"\nSUB NonAppele\n    PRINT \"ne doit pas apparaitre\"\nEND SUB\nPRINT \"fin\"";
+    assert_eq!(run_program(src), "main\nfin\n");
+}
