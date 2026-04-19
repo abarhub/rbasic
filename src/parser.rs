@@ -79,3 +79,116 @@ pub fn parse(source: &str) -> Result<Program, Vec<Simple<char>>> {
         .map(|lines| Program { lines })
         .parse(source)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn stmt(source: &str) -> Statement {
+        parse(source).expect("parse error").lines.remove(0).statement
+    }
+
+    fn line0(source: &str) -> Line {
+        parse(source).expect("parse error").lines.remove(0)
+    }
+
+    // --- Numéros de ligne ---
+
+    #[test]
+    fn test_line_with_number() {
+        let l = line0("10 X = 5");
+        assert!(matches!(l.number, Some(10)));
+    }
+
+    #[test]
+    fn test_line_without_number() {
+        let l = line0("X = 5");
+        assert!(l.number.is_none());
+    }
+
+    // --- Affectation ---
+
+    #[test]
+    fn test_let_with_keyword() {
+        let s = stmt("LET X = 42");
+        assert!(matches!(s, Statement::Let { var, value: Expr::Integer(42) } if var == "X"));
+    }
+
+    #[test]
+    fn test_let_without_keyword() {
+        let s = stmt("X = 42");
+        assert!(matches!(s, Statement::Let { var, value: Expr::Integer(42) } if var == "X"));
+    }
+
+    #[test]
+    fn test_let_with_line_number() {
+        let l = line0("20 LET Y = 7");
+        assert_eq!(l.number, Some(20));
+        assert!(matches!(l.statement, Statement::Let { var, value: Expr::Integer(7) } if var == "Y"));
+    }
+
+    // --- PRINT ---
+
+    #[test]
+    fn test_print_string() {
+        let s = stmt(r#"PRINT "bonjour""#);
+        if let Statement::Print { values } = s {
+            assert_eq!(values.len(), 1);
+            assert!(matches!(&values[0], Expr::StringLit(v) if v == "bonjour"));
+        }
+    }
+
+    #[test]
+    fn test_print_integer() {
+        let s = stmt("PRINT 99");
+        if let Statement::Print { values } = s {
+            assert!(matches!(values[0], Expr::Integer(99)));
+        }
+    }
+
+    #[test]
+    fn test_print_variable() {
+        let s = stmt("PRINT X");
+        if let Statement::Print { values } = s {
+            assert!(matches!(&values[0], Expr::Variable(v) if v == "X"));
+        }
+    }
+
+    #[test]
+    fn test_print_multiple_params() {
+        let s = stmt(r#"PRINT "val", 1, X"#);
+        if let Statement::Print { values } = s {
+            assert_eq!(values.len(), 3);
+            assert!(matches!(&values[0], Expr::StringLit(v) if v == "val"));
+            assert!(matches!(values[1], Expr::Integer(1)));
+            assert!(matches!(&values[2], Expr::Variable(v) if v == "X"));
+        }
+    }
+
+    #[test]
+    fn test_print_empty() {
+        let s = stmt("PRINT");
+        assert!(matches!(s, Statement::Print { values } if values.is_empty()));
+    }
+
+    // --- Programme complet ---
+
+    #[test]
+    fn test_program_multiple_lines() {
+        let prog = parse("LET X = 1\nPRINT X").expect("parse error");
+        assert_eq!(prog.lines.len(), 2);
+    }
+
+    #[test]
+    fn test_program_blank_lines() {
+        let prog = parse("X = 1\n\nPRINT X").expect("parse error");
+        assert_eq!(prog.lines.len(), 2);
+    }
+
+    #[test]
+    fn test_program_mixed_numbered_unnumbered() {
+        let prog = parse("10 X = 5\nPRINT X").expect("parse error");
+        assert_eq!(prog.lines[0].number, Some(10));
+        assert!(prog.lines[1].number.is_none());
+    }
+}
