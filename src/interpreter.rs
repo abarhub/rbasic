@@ -162,6 +162,7 @@ fn exec_stmt(
     state: &mut State,
     for_stack: &mut Vec<ForFrame>,
     while_stack: &mut Vec<usize>,
+    call_stack: &mut Vec<usize>,
     output: &mut dyn Write,
 ) -> usize {
     match stmt {
@@ -191,9 +192,9 @@ fn exec_stmt(
 
         Statement::If { cond, then_stmt, else_stmt } => {
             if state.eval_int(cond) != 0 {
-                exec_stmt(then_stmt, pc, lines, state, for_stack, while_stack, output)
+                exec_stmt(then_stmt, pc, lines, state, for_stack, while_stack, call_stack, output)
             } else if let Some(e) = else_stmt {
-                exec_stmt(e, pc, lines, state, for_stack, while_stack, output)
+                exec_stmt(e, pc, lines, state, for_stack, while_stack, call_stack, output)
             } else {
                 pc + 1
             }
@@ -256,7 +257,6 @@ fn exec_stmt(
         Statement::Wend => {
             let while_pc = while_stack.pop()
                 .unwrap_or_else(|| panic!("WEND sans WHILE"));
-            // Re-evaluate condition
             match &lines[while_pc].statement {
                 Statement::While { cond } => {
                     if state.eval_int(cond) != 0 {
@@ -269,6 +269,16 @@ fn exec_stmt(
                 _ => panic!("WEND : PC while ne pointe pas sur WHILE"),
             }
         }
+
+        Statement::Gosub(target) => {
+            call_stack.push(pc + 1);
+            find_target(lines, target)
+        }
+
+        Statement::Return => {
+            call_stack.pop()
+                .unwrap_or_else(|| panic!("RETURN sans GOSUB"))
+        }
     }
 }
 
@@ -280,6 +290,7 @@ pub fn run_with_output(program: &Program, output: &mut dyn Write) {
     let mut state = State::new();
     let mut for_stack: Vec<ForFrame> = Vec::new();
     let mut while_stack: Vec<usize> = Vec::new();
+    let mut call_stack: Vec<usize> = Vec::new();
     let lines = &program.lines;
 
     let mut pc = 0usize;
@@ -291,6 +302,7 @@ pub fn run_with_output(program: &Program, output: &mut dyn Write) {
             &mut state,
             &mut for_stack,
             &mut while_stack,
+            &mut call_stack,
             output,
         );
     }

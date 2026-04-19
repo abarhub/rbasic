@@ -43,6 +43,8 @@ pub enum Statement {
     Next { var: Option<String> },
     While { cond: Expr },
     Wend,
+    Gosub(JumpTarget),
+    Return,
 }
 
 #[derive(Debug, Clone)]

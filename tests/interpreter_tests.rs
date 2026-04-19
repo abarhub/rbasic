@@ -456,3 +456,37 @@ fn test_while_compte_a_rebours() {
     let src = "N = 3\nWHILE N > 0\nPRINT N\nN = N - 1\nWEND";
     assert_eq!(run_program(src), "3\n2\n1\n");
 }
+
+// --- GOSUB / RETURN ---
+
+#[test]
+fn test_gosub_simple() {
+    let src = "GOSUB affiche\nGOTO fin\naffiche:\nPRINT \"bonjour\"\nRETURN\nfin:";
+    assert_eq!(run_program(src), "bonjour\n");
+}
+
+#[test]
+fn test_gosub_retour_correct() {
+    // Après RETURN on continue après le GOSUB
+    let src = "PRINT \"avant\"\nGOSUB routine\nPRINT \"apres\"\nGOTO fin\nroutine:\nPRINT \"routine\"\nRETURN\nfin:";
+    assert_eq!(run_program(src), "avant\nroutine\napres\n");
+}
+
+#[test]
+fn test_gosub_multiple_appels() {
+    let src = "GOSUB inc\nGOSUB inc\nGOSUB inc\nPRINT X\nGOTO fin\ninc:\nX = X + 1\nRETURN\nfin:";
+    assert_eq!(run_program(src), "3\n");
+}
+
+#[test]
+fn test_gosub_line_number() {
+    let src = "10 GOSUB 30\n20 GOTO 50\n30 PRINT \"sub\"\n40 RETURN\n50 PRINT \"fin\"";
+    assert_eq!(run_program(src), "sub\nfin\n");
+}
+
+#[test]
+fn test_gosub_imbriques() {
+    // Un sous-programme appelle un autre sous-programme
+    let src = "GOSUB a\nPRINT \"retour main\"\nGOTO fin\na:\nPRINT \"debut a\"\nGOSUB b\nPRINT \"fin a\"\nRETURN\nb:\nPRINT \"dans b\"\nRETURN\nfin:";
+    assert_eq!(run_program(src), "debut a\ndans b\nfin a\nretour main\n");
+}
