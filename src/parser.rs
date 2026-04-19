@@ -337,7 +337,8 @@ fn line() -> impl Parser<char, Line, Error = Simple<char>> {
         .then_ignore(hspace())
         .or_not();
 
-    line_number
+    hspace()
+        .ignore_then(line_number)
         .then(statement())
         .map(|(number, statement)| Line { number, statement })
 }
