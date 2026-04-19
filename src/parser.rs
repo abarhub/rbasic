@@ -27,7 +27,7 @@ fn var_name() -> impl Parser<char, String, Error = Simple<char>> {
 // Hiérarchie de précédence (du plus fort au plus faible) :
 //   atom       : littéral, variable, ( expr )
 //   unaire     : -atom  +atom  (récursif : --3 = -(-3))
-//   mul        : * / %
+//   mul        : * / MOD
 //   add        : + -
 //   cmp        : = <> < > <= >=   (au plus une comparaison)
 //   NOT        : NOT cmp
@@ -75,10 +75,10 @@ fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
             .or(atom)
         }).boxed();
 
-        // --- mul : * / % ---
+        // --- mul : * / MOD ---
         let mul_op = just('*').to(Op::Mul)
             .or(just('/').to(Op::Div))
-            .or(just('%').to(Op::Mod));
+            .or(text::keyword("MOD").to(Op::Mod));
 
         let mul = unary.clone()
             .then(hspace().ignore_then(mul_op).then_ignore(hspace()).then(unary).repeated())
