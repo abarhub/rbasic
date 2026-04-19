@@ -1,9 +1,13 @@
 use chumsky::prelude::*;
 use crate::ast::*;
 
+// Espaces horizontaux seulement (pas les sauts de ligne)
+fn hspace() -> impl Parser<char, (), Error = Simple<char>> {
+    filter(|c: &char| *c == ' ' || *c == '\t').repeated().ignored()
+}
+
 fn integer() -> impl Parser<char, i64, Error = Simple<char>> {
-    text::int(10)
-        .map(|s: String| s.parse::<i64>().unwrap())
+    text::int(10).map(|s: String| s.parse::<i64>().unwrap())
 }
 
 fn string_lit() -> impl Parser<char, String, Error = Simple<char>> {
@@ -13,52 +17,65 @@ fn string_lit() -> impl Parser<char, String, Error = Simple<char>> {
         .map(|chars| chars.into_iter().collect())
 }
 
-fn variable_name() -> impl Parser<char, String, Error = Simple<char>> {
-    text::ident()
-}
-
 fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
-    let int = integer().map(Expr::Integer);
-    let s = string_lit().map(Expr::StringLit);
-    let var = variable_name().map(Expr::Variable);
-    s.or(int).or(var)
+    string_lit().map(Expr::StringLit)
+        .or(integer().map(Expr::Integer))
+        .or(text::ident().map(Expr::Variable))
 }
 
-fn let_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
-    text::keyword("LET")
-        .padded()
-        .ignore_then(variable_name())
-        .then_ignore(just('=').padded())
+fn assign_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    let with_let = text::keyword("LET")
+        .ignore_then(hspace())
+        .ignore_then(text::ident())
+        .then_ignore(hspace())
+        .then_ignore(just('='))
+        .then_ignore(hspace())
         .then(integer().map(Expr::Integer))
-        .map(|(var, value)| Statement::Let { var, value })
+        .map(|(var, value)| Statement::Let { var, value });
+
+    let without_let = text::ident()
+        .then_ignore(hspace())
+        .then_ignore(just('='))
+        .then_ignore(hspace())
+        .then(integer().map(Expr::Integer))
+        .map(|(var, value)| Statement::Let { var, value });
+
+    with_let.or(without_let)
 }
 
 fn print_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    let values = expr()
+        .then_ignore(hspace())
+        .separated_by(just(',').then_ignore(hspace()));
+
     text::keyword("PRINT")
-        .padded()
-        .ignore_then(expr())
-        .map(|value| Statement::Print { value })
+        .ignore_then(hspace())
+        .ignore_then(values)
+        .map(|values| Statement::Print { values })
 }
 
 fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
-    let_stmt().or(print_stmt())
+    print_stmt().or(assign_stmt())
 }
 
 fn line() -> impl Parser<char, Line, Error = Simple<char>> {
-    text::int(10)
+    let line_number = text::int(10)
         .map(|s: String| s.parse::<u64>().unwrap())
-        .then_ignore(text::whitespace())
+        .then_ignore(hspace())
+        .or_not();
+
+    line_number
         .then(statement())
         .map(|(number, statement)| Line { number, statement })
 }
 
-fn program() -> impl Parser<char, Program, Error = Simple<char>> {
+pub fn parse(source: &str) -> Result<Program, Vec<Simple<char>>> {
     line()
-        .separated_by(text::newline())
+        .separated_by(
+            filter(|c: &char| *c == '\r' || *c == '\n').repeated().at_least(1)
+        )
+        .allow_leading()
         .allow_trailing()
         .map(|lines| Program { lines })
-}
-
-pub fn parse(source: &str) -> Result<Program, Vec<Simple<char>>> {
-    program().parse(source)
+        .parse(source)
 }
