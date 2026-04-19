@@ -246,3 +246,100 @@ fn test_concat_chaine_triple() {
 fn test_affectation_concat() {
     assert_eq!(run_program("A$ = \"bon\"\nA$ = A$ + \"jour\"\nPRINT A$"), "bonjour\n");
 }
+
+// --- Opérateurs unaires ---
+
+#[test]
+fn test_negatif_litteral() {
+    assert_eq!(run_program("PRINT -5"), "-5\n");
+}
+
+#[test]
+fn test_negatif_variable() {
+    assert_eq!(run_program("X = 3\nPRINT -X"), "-3\n");
+}
+
+#[test]
+fn test_positif_unaire() {
+    assert_eq!(run_program("PRINT +7"), "7\n");
+}
+
+#[test]
+fn test_double_negatif() {
+    assert_eq!(run_program("PRINT --5"), "5\n");
+}
+
+#[test]
+fn test_negatif_dans_expression() {
+    assert_eq!(run_program("PRINT 10 + -3"), "7\n");
+}
+
+#[test]
+fn test_negatif_affectation() {
+    assert_eq!(run_program("X = -42\nPRINT X"), "-42\n");
+}
+
+// --- NOT ---
+
+#[test]
+fn test_not_zero_donne_moins_un() {
+    assert_eq!(run_program("PRINT NOT 0"), "-1\n");
+}
+
+#[test]
+fn test_not_moins_un_donne_zero() {
+    assert_eq!(run_program("PRINT NOT -1"), "0\n");
+}
+
+#[test]
+fn test_not_comparaison_vraie() {
+    // 3 < 5 = -1, NOT -1 = 0
+    assert_eq!(run_program("PRINT NOT 3 < 5"), "0\n");
+}
+
+#[test]
+fn test_not_comparaison_fausse() {
+    // 5 < 3 = 0, NOT 0 = -1
+    assert_eq!(run_program("PRINT NOT 5 < 3"), "-1\n");
+}
+
+// --- AND / OR / XOR ---
+
+#[test]
+fn test_and_bit_a_bit() {
+    assert_eq!(run_program("PRINT 6 AND 3"), "2\n");   // 0110 & 0011 = 0010
+}
+
+#[test]
+fn test_or_bit_a_bit() {
+    assert_eq!(run_program("PRINT 6 OR 3"), "7\n");    // 0110 | 0011 = 0111
+}
+
+#[test]
+fn test_xor_bit_a_bit() {
+    assert_eq!(run_program("PRINT 6 XOR 3"), "5\n");   // 0110 ^ 0011 = 0101
+}
+
+#[test]
+fn test_and_logique() {
+    // (-1) AND (-1) = -1 (vrai AND vrai)
+    assert_eq!(run_program("PRINT (3 > 1) AND (5 > 2)"), "-1\n");
+}
+
+#[test]
+fn test_or_logique() {
+    // (-1) OR 0 = -1 (vrai OR faux)
+    assert_eq!(run_program("PRINT (3 > 1) OR (2 > 5)"), "-1\n");
+}
+
+#[test]
+fn test_precedence_cmp_avant_not() {
+    // NOT (3 < 5) = NOT (-1) = 0
+    assert_eq!(run_program("PRINT NOT 3 < 5"), "0\n");
+}
+
+#[test]
+fn test_precedence_not_avant_and() {
+    // (NOT 0) AND -1 = (-1) AND (-1) = -1
+    assert_eq!(run_program("PRINT NOT 0 AND -1"), "-1\n");
+}

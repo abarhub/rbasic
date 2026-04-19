@@ -24,13 +24,19 @@ fn var_name() -> impl Parser<char, String, Error = Simple<char>> {
         })
 }
 
-// Grammaire des expressions avec précédence :
-//   comparaison = addition (op_cmp addition)?
-//   addition    = multiplication ((+ | -) multiplication)*
-//   multiplié   = atom ((* | / | %) atom)*
-//   atom        = littéral | variable | '(' comparaison ')'
+// Hiérarchie de précédence (du plus fort au plus faible) :
+//   atom       : littéral, variable, ( expr )
+//   unaire     : -atom  +atom  (récursif : --3 = -(-3))
+//   mul        : * / %
+//   add        : + -
+//   cmp        : = <> < > <= >=   (au plus une comparaison)
+//   NOT        : NOT cmp
+//   AND        : AND (bit à bit)
+//   OR         : OR  (bit à bit)
+//   XOR        : XOR (bit à bit)
 fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
     recursive(|expr_rec| {
+        // --- atom ---
         let atom = string_lit().map(Expr::StringLit)
             .or(integer().map(Expr::Integer))
             .or(var_name().map(Expr::Variable))
@@ -41,35 +47,34 @@ fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
                 .then_ignore(just(')')))
             .boxed();
 
+        // --- unaire (récursif : permet --3, -+5, etc.) ---
+        let unary = recursive(|unary_rec| {
+            just('-').ignore_then(hspace()).ignore_then(unary_rec.clone())
+                .map(|e| Expr::UnaryOp { op: UnaryOp::Neg, operand: Box::new(e) })
+            .or(just('+').ignore_then(hspace()).ignore_then(unary_rec)
+                .map(|e| Expr::UnaryOp { op: UnaryOp::Pos, operand: Box::new(e) }))
+            .or(atom)
+        }).boxed();
+
+        // --- mul : * / % ---
         let mul_op = just('*').to(Op::Mul)
             .or(just('/').to(Op::Div))
             .or(just('%').to(Op::Mod));
 
-        let mul = atom.clone()
-            .then(
-                hspace()
-                    .ignore_then(mul_op)
-                    .then_ignore(hspace())
-                    .then(atom)
-                    .repeated()
-            )
+        let mul = unary.clone()
+            .then(hspace().ignore_then(mul_op).then_ignore(hspace()).then(unary).repeated())
             .foldl(|l, (op, r)| Expr::BinOp { op, left: Box::new(l), right: Box::new(r) })
             .boxed();
 
+        // --- add : + - ---
         let add_op = just('+').to(Op::Add).or(just('-').to(Op::Sub));
 
         let add = mul.clone()
-            .then(
-                hspace()
-                    .ignore_then(add_op)
-                    .then_ignore(hspace())
-                    .then(mul)
-                    .repeated()
-            )
+            .then(hspace().ignore_then(add_op).then_ignore(hspace()).then(mul).repeated())
             .foldl(|l, (op, r)| Expr::BinOp { op, left: Box::new(l), right: Box::new(r) })
             .boxed();
 
-        // Les opérateurs multi-chars sont essayés avant les opérateurs simples
+        // --- cmp : = <> < > <= >= (au plus une comparaison) ---
         let cmp_op = just('<').then(just('>')).to(Op::Ne)
             .or(just('<').then(just('=')).to(Op::Le))
             .or(just('>').then(just('=')).to(Op::Ge))
@@ -77,18 +82,47 @@ fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
             .or(just('>').to(Op::Gt))
             .or(just('=').to(Op::Eq));
 
-        add.clone()
-            .then(
-                hspace()
-                    .ignore_then(cmp_op)
-                    .then_ignore(hspace())
-                    .then(add)
-                    .or_not()
-            )
+        let cmp = add.clone()
+            .then(hspace().ignore_then(cmp_op).then_ignore(hspace()).then(add).or_not())
             .map(|(l, rest)| match rest {
                 Some((op, r)) => Expr::BinOp { op, left: Box::new(l), right: Box::new(r) },
                 None => l,
             })
+            .boxed();
+
+        // --- NOT (niveau entre cmp et AND) ---
+        let not_level = text::keyword("NOT")
+            .ignore_then(hspace())
+            .ignore_then(cmp.clone())
+            .map(|e| Expr::UnaryOp { op: UnaryOp::Not, operand: Box::new(e) })
+            .or(cmp)
+            .boxed();
+
+        // --- AND ---
+        let and_level = not_level.clone()
+            .then(
+                hspace().ignore_then(text::keyword("AND").to(Op::And))
+                    .then_ignore(hspace()).then(not_level).repeated()
+            )
+            .foldl(|l, (op, r)| Expr::BinOp { op, left: Box::new(l), right: Box::new(r) })
+            .boxed();
+
+        // --- OR ---
+        let or_level = and_level.clone()
+            .then(
+                hspace().ignore_then(text::keyword("OR").to(Op::Or))
+                    .then_ignore(hspace()).then(and_level).repeated()
+            )
+            .foldl(|l, (op, r)| Expr::BinOp { op, left: Box::new(l), right: Box::new(r) })
+            .boxed();
+
+        // --- XOR (niveau le plus bas) ---
+        or_level.clone()
+            .then(
+                hspace().ignore_then(text::keyword("XOR").to(Op::Xor))
+                    .then_ignore(hspace()).then(or_level).repeated()
+            )
+            .foldl(|l, (op, r)| Expr::BinOp { op, left: Box::new(l), right: Box::new(r) })
     })
 }
 

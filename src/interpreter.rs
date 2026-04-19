@@ -38,21 +38,28 @@ impl State {
             Expr::Variable(name) if !name.ends_with('$') => {
                 *self.int_vars.get(name).unwrap_or(&0)
             }
-            Expr::BinOp { op, left, right } => {
-                match op {
-                    Op::Add => self.eval_int(left) + self.eval_int(right),
-                    Op::Sub => self.eval_int(left) - self.eval_int(right),
-                    Op::Mul => self.eval_int(left) * self.eval_int(right),
-                    Op::Div => self.eval_int(left) / self.eval_int(right),
-                    Op::Mod => self.eval_int(left) % self.eval_int(right),
-                    Op::Eq  => if self.eval_int(left) == self.eval_int(right) { -1 } else { 0 },
-                    Op::Ne  => if self.eval_int(left) != self.eval_int(right) { -1 } else { 0 },
-                    Op::Lt  => if self.eval_int(left) <  self.eval_int(right) { -1 } else { 0 },
-                    Op::Gt  => if self.eval_int(left) >  self.eval_int(right) { -1 } else { 0 },
-                    Op::Le  => if self.eval_int(left) <= self.eval_int(right) { -1 } else { 0 },
-                    Op::Ge  => if self.eval_int(left) >= self.eval_int(right) { -1 } else { 0 },
-                }
-            }
+            Expr::UnaryOp { op, operand } => match op {
+                UnaryOp::Neg => -self.eval_int(operand),
+                UnaryOp::Pos =>  self.eval_int(operand),
+                // NOT x = -(x+1), équivalent au NOT bit à bit signé (convention QBasic)
+                UnaryOp::Not => !self.eval_int(operand),
+            },
+            Expr::BinOp { op, left, right } => match op {
+                Op::Add => self.eval_int(left) + self.eval_int(right),
+                Op::Sub => self.eval_int(left) - self.eval_int(right),
+                Op::Mul => self.eval_int(left) * self.eval_int(right),
+                Op::Div => self.eval_int(left) / self.eval_int(right),
+                Op::Mod => self.eval_int(left) % self.eval_int(right),
+                Op::Eq  => if self.eval_int(left) == self.eval_int(right) { -1 } else { 0 },
+                Op::Ne  => if self.eval_int(left) != self.eval_int(right) { -1 } else { 0 },
+                Op::Lt  => if self.eval_int(left) <  self.eval_int(right) { -1 } else { 0 },
+                Op::Gt  => if self.eval_int(left) >  self.eval_int(right) { -1 } else { 0 },
+                Op::Le  => if self.eval_int(left) <= self.eval_int(right) { -1 } else { 0 },
+                Op::Ge  => if self.eval_int(left) >= self.eval_int(right) { -1 } else { 0 },
+                Op::And => self.eval_int(left) & self.eval_int(right),
+                Op::Or  => self.eval_int(left) | self.eval_int(right),
+                Op::Xor => self.eval_int(left) ^ self.eval_int(right),
+            },
             _ => panic!("Erreur de type : entier attendu"),
         }
     }
@@ -70,7 +77,6 @@ impl State {
         }
     }
 
-    // Détermine si une expression produit une chaîne (basé sur le membre gauche)
     fn is_string_expr(expr: &Expr) -> bool {
         match expr {
             Expr::StringLit(_) => true,
