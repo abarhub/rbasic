@@ -189,6 +189,17 @@ fn goto_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
         .map(Statement::Goto)
 }
 
+fn gosub_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("GOSUB")
+        .ignore_then(hspace())
+        .ignore_then(jump_target())
+        .map(Statement::Gosub)
+}
+
+fn return_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("RETURN").to(Statement::Return)
+}
+
 fn label_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
     text::ident()
         .then_ignore(hspace())
@@ -265,6 +276,8 @@ fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
             .or(next_stmt())
             .or(while_stmt())
             .or(wend_stmt())
+            .or(gosub_stmt())
+            .or(return_stmt())
             .or(goto_stmt())
             .or(if_stmt)
             .or(label_stmt())

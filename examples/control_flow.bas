@@ -73,3 +73,36 @@ F = F * N
 N = N - 1
 WEND
 PRINT "6! =", F
+
+REM --- GOSUB / RETURN ---
+PRINT "=== GOSUB / RETURN ==="
+PRINT "Calcul de 5! avec GOSUB"
+N = 5
+GOSUB factorielle
+PRINT "5! =", RESULTAT
+GOTO fin_gosub
+
+factorielle:
+RESULTAT = 1
+I = N
+WHILE I > 1
+RESULTAT = RESULTAT * I
+I = I - 1
+WEND
+RETURN
+
+fin_gosub:
+REM Appels multiples
+PRINT "Appels multiples :"
+COMPTEUR = 0
+GOSUB incrementer
+GOSUB incrementer
+GOSUB incrementer
+PRINT "Compteur =", COMPTEUR
+GOTO fin_programme
+
+incrementer:
+COMPTEUR = COMPTEUR + 1
+RETURN
+
+fin_programme:

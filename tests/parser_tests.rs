@@ -477,3 +477,23 @@ fn test_wend_stmt() {
     let s = stmt("WEND");
     assert!(matches!(s, Statement::Wend));
 }
+
+// --- GOSUB / RETURN ---
+
+#[test]
+fn test_gosub_line_number() {
+    let s = stmt("GOSUB 100");
+    assert!(matches!(s, Statement::Gosub(rbasic::ast::JumpTarget::LineNumber(100))));
+}
+
+#[test]
+fn test_gosub_label() {
+    let s = stmt("GOSUB maRoutine");
+    assert!(matches!(s, Statement::Gosub(rbasic::ast::JumpTarget::Label(ref n)) if n == "maRoutine"));
+}
+
+#[test]
+fn test_return_stmt() {
+    let s = stmt("RETURN");
+    assert!(matches!(s, Statement::Return));
+}
