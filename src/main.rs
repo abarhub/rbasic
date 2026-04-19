@@ -2,29 +2,35 @@ mod ast;
 mod parser;
 mod interpreter;
 
-fn main() {
-    let source = r#"
-10 LET X = 42
-20 LET Y = 10
-30 PRINT "Hello, BASIC!"
-40 PRINT X
-50 PRINT Y
-"#
-    .trim();
+use std::env;
+use std::fs;
+use std::process;
 
-    match parser::parse(source) {
+fn main() {
+    let args: Vec<String> = env::args().collect();
+    if args.len() != 2 {
+        eprintln!("Usage: {} <fichier.bas>", args[0]);
+        process::exit(1);
+    }
+
+    let path = &args[1];
+    let source = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("Erreur lecture '{}': {}", path, e);
+            process::exit(1);
+        }
+    };
+
+    match parser::parse(source.trim()) {
         Ok(program) => {
-            println!("--- AST ---");
-            for line in &program.lines {
-                println!("{:?}", line);
-            }
-            println!("--- Execution ---");
             interpreter::run(&program);
         }
         Err(errors) => {
             for e in errors {
-                eprintln!("Parse error: {:?}", e);
+                eprintln!("Erreur de parsing: {:?}", e);
             }
+            process::exit(1);
         }
     }
 }
