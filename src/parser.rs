@@ -245,6 +245,55 @@ fn return_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
     text::keyword("RETURN").to(Statement::Return)
 }
 
+fn sub_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("SUB")
+        .ignore_then(hspace())
+        .ignore_then(text::ident())
+        .then(
+            hspace()
+                .ignore_then(just('('))
+                .ignore_then(hspace())
+                .ignore_then(
+                    var_name()
+                        .then_ignore(hspace())
+                        .separated_by(just(',').then_ignore(hspace()))
+                )
+                .then_ignore(hspace())
+                .then_ignore(just(')'))
+                .or_not()
+                .map(|opt| opt.unwrap_or_default())
+        )
+        .map(|(name, params)| Statement::SubDef { name, params })
+}
+
+fn end_sub_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("END")
+        .ignore_then(hspace())
+        .ignore_then(text::keyword("SUB"))
+        .to(Statement::EndSub)
+}
+
+fn call_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("CALL")
+        .ignore_then(hspace())
+        .ignore_then(text::ident())
+        .then(
+            hspace()
+                .ignore_then(just('('))
+                .ignore_then(hspace())
+                .ignore_then(
+                    expr()
+                        .then_ignore(hspace())
+                        .separated_by(just(',').then_ignore(hspace()))
+                )
+                .then_ignore(hspace())
+                .then_ignore(just(')'))
+                .or_not()
+                .map(|opt| opt.unwrap_or_default())
+        )
+        .map(|(name, args)| Statement::Call { name, args })
+}
+
 fn label_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
     text::ident()
         .then_ignore(hspace())
@@ -315,6 +364,9 @@ fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
             });
 
         rem_stmt()
+            .or(end_sub_stmt())
+            .or(sub_stmt())
+            .or(call_stmt())
             .or(dim_stmt())
             .or(print_stmt())
             .or(for_stmt())

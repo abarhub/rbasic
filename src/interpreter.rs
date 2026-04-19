@@ -138,11 +138,32 @@ impl State {
     }
 }
 
+struct ProcFrame {
+    return_pc: usize,
+    saved_int_vars: HashMap<String, i64>,
+    saved_str_vars: HashMap<String, String>,
+}
+
 struct ForFrame {
     var: String,
     to: i64,
     step: i64,
     body_start: usize, // PC of the line after FOR
+}
+
+fn find_end_sub(lines: &[Line], sub_pc: usize) -> usize {
+    let mut depth = 0usize;
+    for i in (sub_pc + 1)..lines.len() {
+        match &lines[i].statement {
+            Statement::SubDef { .. } => depth += 1,
+            Statement::EndSub => {
+                if depth == 0 { return i; }
+                depth -= 1;
+            }
+            _ => {}
+        }
+    }
+    panic!("END SUB manquant");
 }
 
 fn find_target(lines: &[Line], target: &JumpTarget) -> usize {
@@ -207,6 +228,8 @@ fn exec_stmt(
     for_stack: &mut Vec<ForFrame>,
     while_stack: &mut Vec<usize>,
     call_stack: &mut Vec<usize>,
+    proc_stack: &mut Vec<ProcFrame>,
+    sub_table: &HashMap<String, (usize, Vec<String>)>,
     output: &mut dyn Write,
 ) -> usize {
     match stmt {
@@ -261,9 +284,9 @@ fn exec_stmt(
 
         Statement::If { cond, then_stmt, else_stmt } => {
             if state.eval_int(cond) != 0 {
-                exec_stmt(then_stmt, pc, lines, state, for_stack, while_stack, call_stack, output)
+                exec_stmt(then_stmt, pc, lines, state, for_stack, while_stack, call_stack, proc_stack, sub_table, output)
             } else if let Some(e) = else_stmt {
-                exec_stmt(e, pc, lines, state, for_stack, while_stack, call_stack, output)
+                exec_stmt(e, pc, lines, state, for_stack, while_stack, call_stack, proc_stack, sub_table, output)
             } else {
                 pc + 1
             }
@@ -348,6 +371,45 @@ fn exec_stmt(
             call_stack.pop()
                 .unwrap_or_else(|| panic!("RETURN sans GOSUB"))
         }
+
+        Statement::SubDef { .. } => {
+            // Saute le corps du sous-programme (exécuté uniquement via CALL)
+            find_end_sub(lines, pc) + 1
+        }
+
+        Statement::EndSub => {
+            let frame = proc_stack.pop()
+                .unwrap_or_else(|| panic!("END SUB sans CALL correspondant"));
+            state.int_vars = frame.saved_int_vars;
+            state.str_vars = frame.saved_str_vars;
+            frame.return_pc
+        }
+
+        Statement::Call { name, args } => {
+            let (body_start, params) = sub_table.get(name)
+                .unwrap_or_else(|| panic!("Sous-programme '{}' non défini", name));
+            let body_start = *body_start;
+            let params = params.clone();
+
+            // Évaluer les arguments dans la portée appelante
+            let mut new_int_vars: HashMap<String, i64> = HashMap::new();
+            let mut new_str_vars: HashMap<String, String> = HashMap::new();
+            for (param, arg) in params.iter().zip(args.iter()) {
+                if param.ends_with('$') {
+                    new_str_vars.insert(param.clone(), state.eval_str(arg));
+                } else {
+                    new_int_vars.insert(param.clone(), state.eval_int(arg));
+                }
+            }
+
+            // Sauvegarder la portée courante et entrer dans la nouvelle
+            proc_stack.push(ProcFrame {
+                return_pc: pc + 1,
+                saved_int_vars: std::mem::replace(&mut state.int_vars, new_int_vars),
+                saved_str_vars: std::mem::replace(&mut state.str_vars, new_str_vars),
+            });
+            body_start
+        }
     }
 }
 
@@ -360,7 +422,16 @@ pub fn run_with_output(program: &Program, output: &mut dyn Write) {
     let mut for_stack: Vec<ForFrame> = Vec::new();
     let mut while_stack: Vec<usize> = Vec::new();
     let mut call_stack: Vec<usize> = Vec::new();
+    let mut proc_stack: Vec<ProcFrame> = Vec::new();
     let lines = &program.lines;
+
+    // Construction de la table des sous-programmes
+    let mut sub_table: HashMap<String, (usize, Vec<String>)> = HashMap::new();
+    for (i, line) in lines.iter().enumerate() {
+        if let Statement::SubDef { name, params } = &line.statement {
+            sub_table.insert(name.clone(), (i + 1, params.clone()));
+        }
+    }
 
     let mut pc = 0usize;
     while pc < lines.len() {
@@ -372,6 +443,8 @@ pub fn run_with_output(program: &Program, output: &mut dyn Write) {
             &mut for_stack,
             &mut while_stack,
             &mut call_stack,
+            &mut proc_stack,
+            &sub_table,
             output,
         );
     }

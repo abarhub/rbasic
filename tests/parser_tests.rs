@@ -543,3 +543,41 @@ fn test_return_stmt() {
     let s = stmt("RETURN");
     assert!(matches!(s, Statement::Return));
 }
+
+// --- SUB / END SUB / CALL ---
+
+#[test]
+fn test_sub_sans_params() {
+    let s = stmt("SUB MaSub");
+    assert!(matches!(s, Statement::SubDef { ref name, ref params } if name == "MaSub" && params.is_empty()));
+}
+
+#[test]
+fn test_sub_avec_params() {
+    let s = stmt("SUB MaSub(A, B$)");
+    if let Statement::SubDef { name, params } = s {
+        assert_eq!(name, "MaSub");
+        assert_eq!(params, vec!["A", "B$"]);
+    } else { panic!("Expected SubDef"); }
+}
+
+#[test]
+fn test_end_sub() {
+    let s = stmt("END SUB");
+    assert!(matches!(s, Statement::EndSub));
+}
+
+#[test]
+fn test_call_sans_args() {
+    let s = stmt("CALL MaSub");
+    assert!(matches!(s, Statement::Call { ref name, ref args } if name == "MaSub" && args.is_empty()));
+}
+
+#[test]
+fn test_call_avec_args() {
+    let s = stmt("CALL MaSub(1, 2)");
+    if let Statement::Call { name, args } = s {
+        assert_eq!(name, "MaSub");
+        assert_eq!(args.len(), 2);
+    } else { panic!("Expected Call"); }
+}

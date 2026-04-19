@@ -47,6 +47,9 @@ pub enum Statement {
     Wend,
     Gosub(JumpTarget),
     Return,
+    SubDef { name: String, params: Vec<String> },
+    EndSub,
+    Call { name: String, args: Vec<Expr> },
 }
 
 #[derive(Debug, Clone)]
