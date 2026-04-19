@@ -2,10 +2,38 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use crate::ast::*;
 
+struct ArrayData<T> {
+    dims: Vec<usize>, // taille par dimension (max_index + 1)
+    data: Vec<T>,
+}
+
+impl<T: Default + Clone> ArrayData<T> {
+    fn new(max_indices: &[usize]) -> Self {
+        let dims: Vec<usize> = max_indices.iter().map(|&n| n + 1).collect();
+        let total: usize = dims.iter().product();
+        ArrayData { dims, data: vec![T::default(); total] }
+    }
+
+    fn flat_index(&self, indices: &[i64]) -> usize {
+        assert_eq!(indices.len(), self.dims.len(), "Nombre de dimensions incorrect");
+        let mut idx = 0usize;
+        for (&i, &size) in indices.iter().zip(self.dims.iter()) {
+            assert!(i >= 0 && (i as usize) < size, "Indice hors limites : {}", i);
+            idx = idx * size + i as usize;
+        }
+        idx
+    }
+
+    fn get(&self, indices: &[i64]) -> &T { &self.data[self.flat_index(indices)] }
+    fn set(&mut self, indices: &[i64], val: T) { let i = self.flat_index(indices); self.data[i] = val; }
+}
+
 struct State {
     int_vars: HashMap<String, i64>,
     str_vars: HashMap<String, String>,
     str_dims: HashMap<String, usize>,
+    int_arrays: HashMap<String, ArrayData<i64>>,
+    str_arrays: HashMap<String, ArrayData<String>>,
 }
 
 impl State {
@@ -14,6 +42,8 @@ impl State {
             int_vars: HashMap::new(),
             str_vars: HashMap::new(),
             str_dims: HashMap::new(),
+            int_arrays: HashMap::new(),
+            str_arrays: HashMap::new(),
         }
     }
 
@@ -37,6 +67,12 @@ impl State {
             Expr::Integer(n) => *n,
             Expr::Variable(name) if !name.ends_with('$') => {
                 *self.int_vars.get(name).unwrap_or(&0)
+            }
+            Expr::ArrayAccess { name, indices } if !name.ends_with('$') => {
+                let idx: Vec<i64> = indices.iter().map(|e| self.eval_int(e)).collect();
+                *self.int_arrays.get(name)
+                    .unwrap_or_else(|| panic!("Tableau entier {} non déclaré", name))
+                    .get(&idx)
             }
             Expr::UnaryOp { op, operand } => match op {
                 UnaryOp::Neg => -self.eval_int(operand),
@@ -69,6 +105,13 @@ impl State {
             Expr::Variable(name) if name.ends_with('$') => {
                 self.str_vars.get(name).cloned().unwrap_or_default()
             }
+            Expr::ArrayAccess { name, indices } if name.ends_with('$') => {
+                let idx: Vec<i64> = indices.iter().map(|e| self.eval_int(e)).collect();
+                self.str_arrays.get(name)
+                    .unwrap_or_else(|| panic!("Tableau chaîne {} non déclaré", name))
+                    .get(&idx)
+                    .clone()
+            }
             Expr::BinOp { op: Op::Add, left, right } => {
                 self.eval_str(left) + &self.eval_str(right)
             }
@@ -80,6 +123,7 @@ impl State {
         match expr {
             Expr::StringLit(_) => true,
             Expr::Variable(name) => name.ends_with('$'),
+            Expr::ArrayAccess { name, .. } => name.ends_with('$'),
             Expr::BinOp { op: Op::Add, left, .. } => Self::is_string_expr(left),
             _ => false,
         }
@@ -169,9 +213,34 @@ fn exec_stmt(
         Statement::Rem => pc + 1,
         Statement::Label(_) => pc + 1,
 
-        Statement::Dim { var, size } => {
-            state.str_dims.insert(var.clone(), *size);
-            state.str_vars.entry(var.clone()).or_insert_with(String::new);
+        Statement::Dim { var, dims } => {
+            if var.ends_with('$') {
+                // Crée le tableau chaîne (usage avec indices)
+                state.str_arrays.insert(var.clone(), ArrayData::new(dims));
+                // Rétrocompatibilité 1D : str_dims pour la troncature scalaire
+                if dims.len() == 1 {
+                    state.str_dims.insert(var.clone(), dims[0]);
+                    state.str_vars.entry(var.clone()).or_insert_with(String::new);
+                }
+            } else {
+                state.int_arrays.insert(var.clone(), ArrayData::new(dims));
+            }
+            pc + 1
+        }
+
+        Statement::ArraySet { name, indices, value } => {
+            let idx: Vec<i64> = indices.iter().map(|e| state.eval_int(e)).collect();
+            if name.ends_with('$') {
+                let s = state.eval_str(value);
+                state.str_arrays.get_mut(name)
+                    .unwrap_or_else(|| panic!("Tableau chaîne {} non déclaré", name))
+                    .set(&idx, s);
+            } else {
+                let n = state.eval_int(value);
+                state.int_arrays.get_mut(name)
+                    .unwrap_or_else(|| panic!("Tableau entier {} non déclaré", name))
+                    .set(&idx, n);
+            }
             pc + 1
         }
 

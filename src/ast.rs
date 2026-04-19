@@ -20,6 +20,7 @@ pub enum Expr {
     Integer(i64),
     StringLit(String),
     Variable(String),
+    ArrayAccess { name: String, indices: Vec<Expr> },
     BinOp  { op: Op,       left: Box<Expr>, right: Box<Expr> },
     UnaryOp { op: UnaryOp, operand: Box<Expr> },
 }
@@ -33,7 +34,8 @@ pub enum JumpTarget {
 #[derive(Debug, Clone)]
 pub enum Statement {
     Let   { var: String, value: Expr },
-    Dim   { var: String, size: usize },
+    Dim   { var: String, dims: Vec<usize> },
+    ArraySet { name: String, indices: Vec<Expr>, value: Expr },
     Print { values: Vec<Expr> },
     Rem,
     Label(String),

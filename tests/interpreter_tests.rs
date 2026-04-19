@@ -490,3 +490,104 @@ fn test_gosub_imbriques() {
     let src = "GOSUB a\nPRINT \"retour main\"\nGOTO fin\na:\nPRINT \"debut a\"\nGOSUB b\nPRINT \"fin a\"\nRETURN\nb:\nPRINT \"dans b\"\nRETURN\nfin:";
     assert_eq!(run_program(src), "debut a\ndans b\nfin a\nretour main\n");
 }
+
+// --- Tableaux 1D entiers ---
+
+#[test]
+fn test_tableau_int_1d_affectation_lecture() {
+    let src = "DIM A(5)\nA(0) = 10\nA(1) = 20\nPRINT A(0), A(1)";
+    assert_eq!(run_program(src), "10 20\n");
+}
+
+#[test]
+fn test_tableau_int_valeur_defaut_zero() {
+    let src = "DIM A(3)\nPRINT A(2)";
+    assert_eq!(run_program(src), "0\n");
+}
+
+#[test]
+fn test_tableau_int_indice_max() {
+    // DIM A(n) permet les indices 0..n inclus
+    let src = "DIM A(3)\nA(3) = 99\nPRINT A(3)";
+    assert_eq!(run_program(src), "99\n");
+}
+
+#[test]
+fn test_tableau_int_expression_indice() {
+    let src = "DIM A(10)\nI = 3\nA(I) = 42\nPRINT A(I)";
+    assert_eq!(run_program(src), "42\n");
+}
+
+#[test]
+fn test_tableau_int_expression_valeur() {
+    let src = "DIM A(5)\nA(0) = 3 * 7\nPRINT A(0)";
+    assert_eq!(run_program(src), "21\n");
+}
+
+// --- Tableaux 1D chaînes ---
+
+#[test]
+fn test_tableau_str_1d() {
+    let src = "DIM NOMS$(3)\nNOMS$(0) = \"Alice\"\nNOMS$(1) = \"Bob\"\nPRINT NOMS$(0), NOMS$(1)";
+    assert_eq!(run_program(src), "Alice Bob\n");
+}
+
+#[test]
+fn test_tableau_str_valeur_defaut_vide() {
+    let src = "DIM S$(5)\nPRINT \"|\" + S$(0) + \"|\"";
+    assert_eq!(run_program(src), "||\n");
+}
+
+// --- Tableaux 2D ---
+
+#[test]
+fn test_tableau_2d_affectation_lecture() {
+    let src = "DIM M(2, 3)\nM(1, 2) = 55\nPRINT M(1, 2)";
+    assert_eq!(run_program(src), "55\n");
+}
+
+#[test]
+fn test_tableau_2d_valeur_defaut_zero() {
+    let src = "DIM M(3, 3)\nPRINT M(0, 0)";
+    assert_eq!(run_program(src), "0\n");
+}
+
+#[test]
+fn test_tableau_2d_plusieurs_cases() {
+    let src = "DIM M(2, 2)\nM(0, 0) = 1\nM(0, 1) = 2\nM(1, 0) = 3\nM(1, 1) = 4\nPRINT M(0, 0), M(0, 1), M(1, 0), M(1, 1)";
+    assert_eq!(run_program(src), "1 2 3 4\n");
+}
+
+#[test]
+fn test_tableau_2d_indices_variables() {
+    let src = "DIM T(4, 4)\nI = 2\nJ = 3\nT(I, J) = 77\nPRINT T(2, 3)";
+    assert_eq!(run_program(src), "77\n");
+}
+
+// --- Tableaux 3D ---
+
+#[test]
+fn test_tableau_3d() {
+    let src = "DIM C(2, 2, 2)\nC(1, 1, 1) = 123\nPRINT C(1, 1, 1)";
+    assert_eq!(run_program(src), "123\n");
+}
+
+// --- Tableaux avec boucles ---
+
+#[test]
+fn test_tableau_rempli_par_boucle() {
+    let src = "DIM A(4)\nFOR I = 0 TO 4\nA(I) = I * I\nNEXT I\nPRINT A(0), A(1), A(2), A(3), A(4)";
+    assert_eq!(run_program(src), "0 1 4 9 16\n");
+}
+
+#[test]
+fn test_tableau_somme_par_boucle() {
+    let src = "DIM A(4)\nFOR I = 0 TO 4\nA(I) = I + 1\nNEXT I\nS = 0\nFOR I = 0 TO 4\nS = S + A(I)\nNEXT I\nPRINT S";
+    assert_eq!(run_program(src), "15\n");
+}
+
+#[test]
+fn test_tableau_str_2d() {
+    let src = "DIM G$(1, 1)\nG$(0, 0) = \"TL\"\nG$(0, 1) = \"TR\"\nG$(1, 0) = \"BL\"\nG$(1, 1) = \"BR\"\nPRINT G$(0, 0), G$(1, 1)";
+    assert_eq!(run_program(src), "TL BR\n");
+}
