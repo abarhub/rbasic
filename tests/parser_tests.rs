@@ -1,4 +1,4 @@
-use rbasic::ast::{Expr, Statement};
+use rbasic::ast::{Expr, Op, Statement};
 use rbasic::parser::parse;
 
 fn stmt(source: &str) -> Statement {
@@ -156,4 +156,134 @@ fn test_program_mixed_numbered_unnumbered() {
     let prog = parse("10 X = 5\nPRINT X").expect("parse error");
     assert_eq!(prog.lines[0].number, Some(10));
     assert!(prog.lines[1].number.is_none());
+}
+
+// --- Expressions arithmétiques entières ---
+
+fn binop(s: &str) -> (Op, Box<Expr>, Box<Expr>) {
+    match stmt(s) {
+        Statement::Print { mut values } => {
+            match values.remove(0) {
+                Expr::BinOp { op, left, right } => (op, left, right),
+                _ => panic!("expected BinOp"),
+            }
+        }
+        _ => panic!("expected Print"),
+    }
+}
+
+#[test]
+fn test_expr_addition() {
+    let (op, l, r) = binop("PRINT 2 + 3");
+    assert!(matches!(op, Op::Add));
+    assert!(matches!(*l, Expr::Integer(2)));
+    assert!(matches!(*r, Expr::Integer(3)));
+}
+
+#[test]
+fn test_expr_soustraction() {
+    let (op, l, r) = binop("PRINT 10 - 4");
+    assert!(matches!(op, Op::Sub));
+    assert!(matches!(*l, Expr::Integer(10)));
+    assert!(matches!(*r, Expr::Integer(4)));
+}
+
+#[test]
+fn test_expr_multiplication() {
+    let (op, l, r) = binop("PRINT 3 * 5");
+    assert!(matches!(op, Op::Mul));
+    assert!(matches!(*l, Expr::Integer(3)));
+    assert!(matches!(*r, Expr::Integer(5)));
+}
+
+#[test]
+fn test_expr_division() {
+    let (op, _, _) = binop("PRINT 10 / 2");
+    assert!(matches!(op, Op::Div));
+}
+
+#[test]
+fn test_expr_modulo() {
+    let (op, _, _) = binop("PRINT 10 % 3");
+    assert!(matches!(op, Op::Mod));
+}
+
+#[test]
+fn test_expr_priorite_mul_sur_add() {
+    // 2 + 3 * 4 doit être parsé comme 2 + (3 * 4)
+    let (op, l, r) = binop("PRINT 2 + 3 * 4");
+    assert!(matches!(op, Op::Add));
+    assert!(matches!(*l, Expr::Integer(2)));
+    assert!(matches!(*r, Expr::BinOp { op: Op::Mul, .. }));
+}
+
+#[test]
+fn test_expr_parentheses() {
+    // (2 + 3) * 4 doit être parsé comme (2 + 3) * 4
+    let (op, l, r) = binop("PRINT (2 + 3) * 4");
+    assert!(matches!(op, Op::Mul));
+    assert!(matches!(*l, Expr::BinOp { op: Op::Add, .. }));
+    assert!(matches!(*r, Expr::Integer(4)));
+}
+
+// --- Opérateurs de comparaison ---
+
+#[test]
+fn test_expr_egal() {
+    let (op, _, _) = binop("PRINT X = 5");
+    assert!(matches!(op, Op::Eq));
+}
+
+#[test]
+fn test_expr_different() {
+    let (op, _, _) = binop("PRINT X <> 5");
+    assert!(matches!(op, Op::Ne));
+}
+
+#[test]
+fn test_expr_inferieur() {
+    let (op, _, _) = binop("PRINT X < 5");
+    assert!(matches!(op, Op::Lt));
+}
+
+#[test]
+fn test_expr_superieur() {
+    let (op, _, _) = binop("PRINT X > 5");
+    assert!(matches!(op, Op::Gt));
+}
+
+#[test]
+fn test_expr_inferieur_egal() {
+    let (op, _, _) = binop("PRINT X <= 5");
+    assert!(matches!(op, Op::Le));
+}
+
+#[test]
+fn test_expr_superieur_egal() {
+    let (op, _, _) = binop("PRINT X >= 5");
+    assert!(matches!(op, Op::Ge));
+}
+
+// --- Concaténation de chaînes ---
+
+#[test]
+fn test_expr_concat_litteraux() {
+    let (op, l, r) = binop(r#"PRINT "bon" + "jour""#);
+    assert!(matches!(op, Op::Add));
+    assert!(matches!(*l, Expr::StringLit(ref s) if s == "bon"));
+    assert!(matches!(*r, Expr::StringLit(ref s) if s == "jour"));
+}
+
+#[test]
+fn test_expr_concat_variables() {
+    let (op, l, r) = binop("PRINT A$ + B$");
+    assert!(matches!(op, Op::Add));
+    assert!(matches!(*l, Expr::Variable(ref v) if v == "A$"));
+    assert!(matches!(*r, Expr::Variable(ref v) if v == "B$"));
+}
+
+#[test]
+fn test_affectation_avec_expression() {
+    let s = stmt("X = 2 + 3");
+    assert!(matches!(s, Statement::Let { var, value: Expr::BinOp { op: Op::Add, .. } } if var == "X"));
 }

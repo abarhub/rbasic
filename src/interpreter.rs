@@ -38,6 +38,21 @@ impl State {
             Expr::Variable(name) if !name.ends_with('$') => {
                 *self.int_vars.get(name).unwrap_or(&0)
             }
+            Expr::BinOp { op, left, right } => {
+                match op {
+                    Op::Add => self.eval_int(left) + self.eval_int(right),
+                    Op::Sub => self.eval_int(left) - self.eval_int(right),
+                    Op::Mul => self.eval_int(left) * self.eval_int(right),
+                    Op::Div => self.eval_int(left) / self.eval_int(right),
+                    Op::Mod => self.eval_int(left) % self.eval_int(right),
+                    Op::Eq  => if self.eval_int(left) == self.eval_int(right) { -1 } else { 0 },
+                    Op::Ne  => if self.eval_int(left) != self.eval_int(right) { -1 } else { 0 },
+                    Op::Lt  => if self.eval_int(left) <  self.eval_int(right) { -1 } else { 0 },
+                    Op::Gt  => if self.eval_int(left) >  self.eval_int(right) { -1 } else { 0 },
+                    Op::Le  => if self.eval_int(left) <= self.eval_int(right) { -1 } else { 0 },
+                    Op::Ge  => if self.eval_int(left) >= self.eval_int(right) { -1 } else { 0 },
+                }
+            }
             _ => panic!("Erreur de type : entier attendu"),
         }
     }
@@ -48,20 +63,28 @@ impl State {
             Expr::Variable(name) if name.ends_with('$') => {
                 self.str_vars.get(name).cloned().unwrap_or_default()
             }
+            Expr::BinOp { op: Op::Add, left, right } => {
+                self.eval_str(left) + &self.eval_str(right)
+            }
             _ => panic!("Erreur de type : chaîne attendue"),
         }
     }
 
-    fn format_value(&self, expr: &Expr) -> String {
+    // Détermine si une expression produit une chaîne (basé sur le membre gauche)
+    fn is_string_expr(expr: &Expr) -> bool {
         match expr {
-            Expr::Integer(n) => n.to_string(),
-            Expr::StringLit(s) => s.clone(),
-            Expr::Variable(name) if name.ends_with('$') => {
-                self.str_vars.get(name).cloned().unwrap_or_default()
-            }
-            Expr::Variable(name) => {
-                self.int_vars.get(name).unwrap_or(&0).to_string()
-            }
+            Expr::StringLit(_) => true,
+            Expr::Variable(name) => name.ends_with('$'),
+            Expr::BinOp { op: Op::Add, left, .. } => Self::is_string_expr(left),
+            _ => false,
+        }
+    }
+
+    fn format_value(&self, expr: &Expr) -> String {
+        if Self::is_string_expr(expr) {
+            self.eval_str(expr)
+        } else {
+            self.eval_int(expr).to_string()
         }
     }
 }
