@@ -250,7 +250,7 @@ fn test_expr_division() {
 
 #[test]
 fn test_expr_modulo() {
-    let (op, _, _) = binop("PRINT 10 % 3");
+    let (op, _, _) = binop("PRINT 10 MOD 3");
     assert!(matches!(op, Op::Mod));
 }
 

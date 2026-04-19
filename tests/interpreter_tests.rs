@@ -150,7 +150,7 @@ fn test_division() {
 
 #[test]
 fn test_modulo() {
-    assert_eq!(run_program("PRINT 10 % 3"), "1\n");
+    assert_eq!(run_program("PRINT 10 MOD 3"), "1\n");
 }
 
 #[test]
