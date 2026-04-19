@@ -8,12 +8,13 @@ pub enum Expr {
 #[derive(Debug, Clone)]
 pub enum Statement {
     Let { var: String, value: Expr },
-    Print { value: Expr },
+    Print { values: Vec<Expr> },
 }
 
 #[derive(Debug, Clone)]
 pub struct Line {
-    pub number: u64,
+    #[allow(dead_code)]
+    pub number: Option<u64>,
     pub statement: Statement,
 }
 

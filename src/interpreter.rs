@@ -4,17 +4,17 @@ use crate::ast::*;
 pub fn run(program: &Program) {
     let mut vars: HashMap<String, i64> = HashMap::new();
 
-    let mut lines = program.lines.clone();
-    lines.sort_by_key(|l| l.number);
-
-    for line in &lines {
+    for line in &program.lines {
         match &line.statement {
             Statement::Let { var, value } => {
                 let v = eval_int(value, &vars);
                 vars.insert(var.clone(), v);
             }
-            Statement::Print { value } => {
-                print_value(value, &vars);
+            Statement::Print { values } => {
+                let parts: Vec<String> = values.iter()
+                    .map(|e| format_value(e, &vars))
+                    .collect();
+                println!("{}", parts.join(" "));
             }
         }
     }
@@ -28,13 +28,10 @@ fn eval_int(expr: &Expr, vars: &HashMap<String, i64>) -> i64 {
     }
 }
 
-fn print_value(expr: &Expr, vars: &HashMap<String, i64>) {
+fn format_value(expr: &Expr, vars: &HashMap<String, i64>) -> String {
     match expr {
-        Expr::Integer(n) => println!("{}", n),
-        Expr::StringLit(s) => println!("{}", s),
-        Expr::Variable(name) => {
-            let v = vars.get(name).unwrap_or(&0);
-            println!("{}", v);
-        }
+        Expr::Integer(n) => n.to_string(),
+        Expr::StringLit(s) => s.clone(),
+        Expr::Variable(name) => vars.get(name).unwrap_or(&0).to_string(),
     }
 }
