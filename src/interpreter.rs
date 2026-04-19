@@ -62,6 +62,127 @@ impl State {
         }
     }
 
+    fn int_builtin(&self, name: &str, args: &[Expr]) -> Option<i64> {
+        match name {
+            "LEN" => {
+                assert_eq!(args.len(), 1, "LEN attend 1 argument");
+                Some(self.eval_str(&args[0]).chars().count() as i64)
+            }
+            "ASC" => {
+                assert_eq!(args.len(), 1, "ASC attend 1 argument");
+                let s = self.eval_str(&args[0]);
+                Some(s.chars().next().map_or(0, |c| c as i64))
+            }
+            "VAL" => {
+                assert_eq!(args.len(), 1, "VAL attend 1 argument");
+                let s = self.eval_str(&args[0]);
+                Some(s.trim().parse::<i64>().unwrap_or(0))
+            }
+            "INSTR" => {
+                match args.len() {
+                    2 => {
+                        let s = self.eval_str(&args[0]);
+                        let sub = self.eval_str(&args[1]);
+                        Some(match s.find(sub.as_str()) {
+                            Some(pos) => s[..pos].chars().count() as i64 + 1,
+                            None => 0,
+                        })
+                    }
+                    3 => {
+                        let start = (self.eval_int(&args[0]) - 1).max(0) as usize;
+                        let s = self.eval_str(&args[1]);
+                        let sub = self.eval_str(&args[2]);
+                        let chars: Vec<char> = s.chars().collect();
+                        let slice: String = chars[start.min(chars.len())..].iter().collect();
+                        Some(match slice.find(sub.as_str()) {
+                            Some(pos) => start as i64 + slice[..pos].chars().count() as i64 + 1,
+                            None => 0,
+                        })
+                    }
+                    _ => panic!("INSTR attend 2 ou 3 arguments"),
+                }
+            }
+            "ABS" => {
+                assert_eq!(args.len(), 1, "ABS attend 1 argument");
+                Some(self.eval_int(&args[0]).abs())
+            }
+            "SGN" => {
+                assert_eq!(args.len(), 1, "SGN attend 1 argument");
+                let n = self.eval_int(&args[0]);
+                Some(if n > 0 { 1 } else if n < 0 { -1 } else { 0 })
+            }
+            "SQR" => {
+                assert_eq!(args.len(), 1, "SQR attend 1 argument");
+                let n = self.eval_int(&args[0]);
+                Some((n as f64).sqrt() as i64)
+            }
+            _ => None,
+        }
+    }
+
+    fn str_builtin(&self, name: &str, args: &[Expr]) -> Option<String> {
+        match name {
+            "STR$" => {
+                assert_eq!(args.len(), 1, "STR$ attend 1 argument");
+                Some(self.eval_int(&args[0]).to_string())
+            }
+            "CHR$" => {
+                assert_eq!(args.len(), 1, "CHR$ attend 1 argument");
+                let n = self.eval_int(&args[0]) as u32;
+                Some(char::from_u32(n).map_or(String::new(), |c| c.to_string()))
+            }
+            "SPACE$" => {
+                assert_eq!(args.len(), 1, "SPACE$ attend 1 argument");
+                let n = self.eval_int(&args[0]).max(0) as usize;
+                Some(" ".repeat(n))
+            }
+            "LEFT$" => {
+                assert_eq!(args.len(), 2, "LEFT$ attend 2 arguments");
+                let s = self.eval_str(&args[0]);
+                let n = self.eval_int(&args[1]).max(0) as usize;
+                Some(s.chars().take(n).collect())
+            }
+            "RIGHT$" => {
+                assert_eq!(args.len(), 2, "RIGHT$ attend 2 arguments");
+                let s = self.eval_str(&args[0]);
+                let n = self.eval_int(&args[1]).max(0) as usize;
+                let chars: Vec<char> = s.chars().collect();
+                let start = chars.len().saturating_sub(n);
+                Some(chars[start..].iter().collect())
+            }
+            "MID$" => {
+                assert!(args.len() == 2 || args.len() == 3, "MID$ attend 2 ou 3 arguments");
+                let s = self.eval_str(&args[0]);
+                let start = (self.eval_int(&args[1]) - 1).max(0) as usize;
+                let chars: Vec<char> = s.chars().collect();
+                let from = start.min(chars.len());
+                Some(if args.len() == 2 {
+                    chars[from..].iter().collect()
+                } else {
+                    let len = self.eval_int(&args[2]).max(0) as usize;
+                    chars[from..].iter().take(len).collect()
+                })
+            }
+            "UCASE$" => {
+                assert_eq!(args.len(), 1, "UCASE$ attend 1 argument");
+                Some(self.eval_str(&args[0]).to_uppercase())
+            }
+            "LCASE$" => {
+                assert_eq!(args.len(), 1, "LCASE$ attend 1 argument");
+                Some(self.eval_str(&args[0]).to_lowercase())
+            }
+            "LTRIM$" => {
+                assert_eq!(args.len(), 1, "LTRIM$ attend 1 argument");
+                Some(self.eval_str(&args[0]).trim_start().to_string())
+            }
+            "RTRIM$" => {
+                assert_eq!(args.len(), 1, "RTRIM$ attend 1 argument");
+                Some(self.eval_str(&args[0]).trim_end().to_string())
+            }
+            _ => None,
+        }
+    }
+
     fn eval_int(&self, expr: &Expr) -> i64 {
         match expr {
             Expr::Integer(n) => *n,
@@ -69,9 +190,12 @@ impl State {
                 *self.int_vars.get(name).unwrap_or(&0)
             }
             Expr::ArrayAccess { name, indices } if !name.ends_with('$') => {
+                if let Some(result) = self.int_builtin(name, indices) {
+                    return result;
+                }
                 let idx: Vec<i64> = indices.iter().map(|e| self.eval_int(e)).collect();
                 *self.int_arrays.get(name)
-                    .unwrap_or_else(|| panic!("Tableau entier {} non déclaré", name))
+                    .unwrap_or_else(|| panic!("Tableau entier ou fonction {} non déclaré(e)", name))
                     .get(&idx)
             }
             Expr::UnaryOp { op, operand } => match op {
@@ -106,9 +230,12 @@ impl State {
                 self.str_vars.get(name).cloned().unwrap_or_default()
             }
             Expr::ArrayAccess { name, indices } if name.ends_with('$') => {
+                if let Some(result) = self.str_builtin(name, indices) {
+                    return result;
+                }
                 let idx: Vec<i64> = indices.iter().map(|e| self.eval_int(e)).collect();
                 self.str_arrays.get(name)
-                    .unwrap_or_else(|| panic!("Tableau chaîne {} non déclaré", name))
+                    .unwrap_or_else(|| panic!("Tableau chaîne ou fonction {} non déclaré(e)", name))
                     .get(&idx)
                     .clone()
             }

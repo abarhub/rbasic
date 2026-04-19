@@ -656,3 +656,153 @@ fn test_sub_corps_saute_si_non_appele() {
     let src = "PRINT \"main\"\nSUB NonAppele\n    PRINT \"ne doit pas apparaitre\"\nEND SUB\nPRINT \"fin\"";
     assert_eq!(run_program(src), "main\nfin\n");
 }
+
+// --- Fonctions built-in : entiers ---
+
+#[test]
+fn test_len() {
+    assert_eq!(run_program(r#"PRINT LEN("Bonjour")"#), "7\n");
+}
+
+#[test]
+fn test_len_vide() {
+    assert_eq!(run_program(r#"PRINT LEN("")"#), "0\n");
+}
+
+#[test]
+fn test_asc() {
+    assert_eq!(run_program(r#"PRINT ASC("A")"#), "65\n");
+}
+
+#[test]
+fn test_val_entier() {
+    assert_eq!(run_program(r#"PRINT VAL("42")"#), "42\n");
+}
+
+#[test]
+fn test_val_negatif() {
+    assert_eq!(run_program(r#"PRINT VAL("-7")"#), "-7\n");
+}
+
+#[test]
+fn test_val_invalide() {
+    assert_eq!(run_program(r#"PRINT VAL("abc")"#), "0\n");
+}
+
+#[test]
+fn test_instr_trouve() {
+    assert_eq!(run_program(r#"PRINT INSTR("Bonjour", "jour")"#), "4\n");
+}
+
+#[test]
+fn test_instr_non_trouve() {
+    assert_eq!(run_program(r#"PRINT INSTR("Bonjour", "xyz")"#), "0\n");
+}
+
+#[test]
+fn test_instr_avec_start() {
+    // Cherche "a" a partir de la position 2 dans "abcabc" -> trouve le 2e "a" en position 4
+    assert_eq!(run_program(r#"PRINT INSTR(2, "abcabc", "a")"#), "4\n");
+}
+
+#[test]
+fn test_abs_positif() {
+    assert_eq!(run_program("PRINT ABS(5)"), "5\n");
+}
+
+#[test]
+fn test_abs_negatif() {
+    assert_eq!(run_program("PRINT ABS(-5)"), "5\n");
+}
+
+#[test]
+fn test_sgn_positif() {
+    assert_eq!(run_program("PRINT SGN(10)"), "1\n");
+}
+
+#[test]
+fn test_sgn_negatif() {
+    assert_eq!(run_program("PRINT SGN(-3)"), "-1\n");
+}
+
+#[test]
+fn test_sgn_zero() {
+    assert_eq!(run_program("PRINT SGN(0)"), "0\n");
+}
+
+#[test]
+fn test_sqr() {
+    assert_eq!(run_program("PRINT SQR(16)"), "4\n");
+}
+
+// --- Fonctions built-in : chaînes ---
+
+#[test]
+fn test_str_dollar() {
+    assert_eq!(run_program("PRINT STR$(42)"), "42\n");
+}
+
+#[test]
+fn test_chr_dollar() {
+    assert_eq!(run_program("PRINT CHR$(65)"), "A\n");
+}
+
+#[test]
+fn test_space_dollar() {
+    assert_eq!(run_program(r#"PRINT "|" + SPACE$(3) + "|""#), "|   |\n");
+}
+
+#[test]
+fn test_left_dollar() {
+    assert_eq!(run_program(r#"PRINT LEFT$("Bonjour", 3)"#), "Bon\n");
+}
+
+#[test]
+fn test_right_dollar() {
+    assert_eq!(run_program(r#"PRINT RIGHT$("Bonjour", 4)"#), "jour\n");
+}
+
+#[test]
+fn test_mid_dollar_deux_args() {
+    assert_eq!(run_program(r#"PRINT MID$("Bonjour", 4)"#), "jour\n");
+}
+
+#[test]
+fn test_mid_dollar_trois_args() {
+    assert_eq!(run_program(r#"PRINT MID$("Bonjour", 2, 3)"#), "onj\n");
+}
+
+#[test]
+fn test_ucase_dollar() {
+    assert_eq!(run_program(r#"PRINT UCASE$("hello")"#), "HELLO\n");
+}
+
+#[test]
+fn test_lcase_dollar() {
+    assert_eq!(run_program(r#"PRINT LCASE$("WORLD")"#), "world\n");
+}
+
+#[test]
+fn test_ltrim_dollar() {
+    assert_eq!(run_program(r#"PRINT LTRIM$("  bonjour")"#), "bonjour\n");
+}
+
+#[test]
+fn test_rtrim_dollar() {
+    assert_eq!(run_program(r#"PRINT RTRIM$("bonjour  ")"#), "bonjour\n");
+}
+
+#[test]
+fn test_fonctions_combinees() {
+    // STR$ + LEN
+    let src = r#"N = 12345
+PRINT LEN(STR$(N))"#;
+    assert_eq!(run_program(src), "5\n");
+}
+
+#[test]
+fn test_str_dollar_dans_expression() {
+    let src = r#"X = 42
+PRINT "Valeur : " + STR$(X)"#;
+    assert_eq!(run_program(src), "Valeur : 42\n");
+}
