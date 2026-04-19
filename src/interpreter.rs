@@ -2,42 +2,93 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use crate::ast::*;
 
-pub fn run(program: &Program) {
-    run_with_output(program, &mut io::stdout());
+struct State {
+    int_vars: HashMap<String, i64>,
+    str_vars: HashMap<String, String>,
+    str_dims: HashMap<String, usize>,
 }
 
-pub fn run_with_output(program: &Program, output: &mut dyn Write) {
-    let mut vars: HashMap<String, i64> = HashMap::new();
+impl State {
+    fn new() -> Self {
+        State {
+            int_vars: HashMap::new(),
+            str_vars: HashMap::new(),
+            str_dims: HashMap::new(),
+        }
+    }
 
-    for line in &program.lines {
-        match &line.statement {
-            Statement::Let { var, value } => {
-                let v = eval_int(value, &vars);
-                vars.insert(var.clone(), v);
+    fn assign(&mut self, var: &str, value: &Expr) {
+        if var.ends_with('$') {
+            let s = self.eval_str(value);
+            let s = if let Some(&max) = self.str_dims.get(var) {
+                s.chars().take(max).collect()
+            } else {
+                s
+            };
+            self.str_vars.insert(var.to_string(), s);
+        } else {
+            let n = self.eval_int(value);
+            self.int_vars.insert(var.to_string(), n);
+        }
+    }
+
+    fn eval_int(&self, expr: &Expr) -> i64 {
+        match expr {
+            Expr::Integer(n) => *n,
+            Expr::Variable(name) if !name.ends_with('$') => {
+                *self.int_vars.get(name).unwrap_or(&0)
             }
-            Statement::Print { values } => {
-                let parts: Vec<String> = values.iter()
-                    .map(|e| format_value(e, &vars))
-                    .collect();
-                writeln!(output, "{}", parts.join(" ")).unwrap();
+            _ => panic!("Erreur de type : entier attendu"),
+        }
+    }
+
+    fn eval_str(&self, expr: &Expr) -> String {
+        match expr {
+            Expr::StringLit(s) => s.clone(),
+            Expr::Variable(name) if name.ends_with('$') => {
+                self.str_vars.get(name).cloned().unwrap_or_default()
+            }
+            _ => panic!("Erreur de type : chaîne attendue"),
+        }
+    }
+
+    fn format_value(&self, expr: &Expr) -> String {
+        match expr {
+            Expr::Integer(n) => n.to_string(),
+            Expr::StringLit(s) => s.clone(),
+            Expr::Variable(name) if name.ends_with('$') => {
+                self.str_vars.get(name).cloned().unwrap_or_default()
+            }
+            Expr::Variable(name) => {
+                self.int_vars.get(name).unwrap_or(&0).to_string()
             }
         }
     }
 }
 
-fn eval_int(expr: &Expr, vars: &HashMap<String, i64>) -> i64 {
-    match expr {
-        Expr::Integer(n) => *n,
-        Expr::Variable(name) => *vars.get(name).unwrap_or(&0),
-        Expr::StringLit(_) => panic!("Expected integer, got string"),
-    }
+pub fn run(program: &Program) {
+    run_with_output(program, &mut io::stdout());
 }
 
-fn format_value(expr: &Expr, vars: &HashMap<String, i64>) -> String {
-    match expr {
-        Expr::Integer(n) => n.to_string(),
-        Expr::StringLit(s) => s.clone(),
-        Expr::Variable(name) => vars.get(name).unwrap_or(&0).to_string(),
+pub fn run_with_output(program: &Program, output: &mut dyn Write) {
+    let mut state = State::new();
+
+    for line in &program.lines {
+        match &line.statement {
+            Statement::Dim { var, size } => {
+                state.str_dims.insert(var.clone(), *size);
+                state.str_vars.entry(var.clone()).or_insert_with(String::new);
+            }
+            Statement::Let { var, value } => {
+                state.assign(var, value);
+            }
+            Statement::Print { values } => {
+                let parts: Vec<String> = values.iter()
+                    .map(|e| state.format_value(e))
+                    .collect();
+                writeln!(output, "{}", parts.join(" ")).unwrap();
+            }
+        }
     }
 }
 
@@ -53,10 +104,7 @@ mod tests {
         String::from_utf8(output).unwrap()
     }
 
-    #[test]
-    fn test_print_string() {
-        assert_eq!(run_program(r#"PRINT "Bonjour""#), "Bonjour\n");
-    }
+    // --- Variables entières ---
 
     #[test]
     fn test_print_integer() {
@@ -64,18 +112,8 @@ mod tests {
     }
 
     #[test]
-    fn test_print_variable() {
+    fn test_print_int_variable() {
         assert_eq!(run_program("X = 10\nPRINT X"), "10\n");
-    }
-
-    #[test]
-    fn test_print_multiple_params() {
-        assert_eq!(run_program(r#"PRINT "val", 99"#), "val 99\n");
-    }
-
-    #[test]
-    fn test_print_empty() {
-        assert_eq!(run_program("PRINT"), "\n");
     }
 
     #[test]
@@ -94,9 +132,83 @@ mod tests {
     }
 
     #[test]
-    fn test_variable_default_zero() {
+    fn test_int_variable_default_zero() {
         assert_eq!(run_program("PRINT X"), "0\n");
     }
+
+    // --- Variables chaînes ---
+
+    #[test]
+    fn test_print_string_literal() {
+        assert_eq!(run_program(r#"PRINT "Bonjour""#), "Bonjour\n");
+    }
+
+    #[test]
+    fn test_string_variable_assign_and_print() {
+        assert_eq!(run_program("A$ = \"hello\"\nPRINT A$"), "hello\n");
+    }
+
+    #[test]
+    fn test_string_variable_with_let() {
+        assert_eq!(run_program("LET NOM$ = \"Alice\"\nPRINT NOM$"), "Alice\n");
+    }
+
+    #[test]
+    fn test_string_variable_default_empty() {
+        assert_eq!(run_program("PRINT A$"), "\n");
+    }
+
+    #[test]
+    fn test_string_variable_overwrite() {
+        assert_eq!(run_program("A$ = \"un\"\nA$ = \"deux\"\nPRINT A$"), "deux\n");
+    }
+
+    #[test]
+    fn test_string_variable_copy() {
+        assert_eq!(run_program("A$ = \"test\"\nB$ = A$\nPRINT B$"), "test\n");
+    }
+
+    // --- DIM ---
+
+    #[test]
+    fn test_dim_initialise_a_vide() {
+        assert_eq!(run_program("DIM NOM$(10)\nPRINT NOM$"), "\n");
+    }
+
+    #[test]
+    fn test_dim_puis_affectation() {
+        assert_eq!(run_program("DIM NOM$(10)\nNOM$ = \"Alice\"\nPRINT NOM$"), "Alice\n");
+    }
+
+    #[test]
+    fn test_dim_tronque_si_trop_long() {
+        assert_eq!(run_program("DIM A$(3)\nA$ = \"bonjour\"\nPRINT A$"), "bon\n");
+    }
+
+    #[test]
+    fn test_dim_ne_tronque_pas_si_assez_court() {
+        assert_eq!(run_program("DIM A$(10)\nA$ = \"hi\"\nPRINT A$"), "hi\n");
+    }
+
+    // --- PRINT multi-params et types mixtes ---
+
+    #[test]
+    fn test_print_multiple_params() {
+        assert_eq!(run_program(r#"PRINT "val", 99"#), "val 99\n");
+    }
+
+    #[test]
+    fn test_print_empty() {
+        assert_eq!(run_program("PRINT"), "\n");
+    }
+
+    #[test]
+    fn test_print_mixed_int_string_vars() {
+        let src = "X = 42\nNOM$ = \"Bob\"\nPRINT NOM$, X";
+        assert_eq!(run_program(src), "Bob 42\n");
+    }
+
+    // --- Programme complet ---
 
     #[test]
     fn test_full_program() {
