@@ -1,8 +1,10 @@
-10 LET X = 42
-20 Y = 8
-30 PRINT "X =", X
-40 PRINT "Y =", Y
-50 PRINT "Bonjour", "depuis", "BASIC!"
-PRINT "Sans numero de ligne"
-Z = 100
-PRINT "Z =", Z
+10 DIM NOM$(20)
+20 NOM$ = "Alice"
+30 LET X = 42
+40 Y = 8
+50 PRINT "Bonjour", NOM$
+60 PRINT "X =", X
+70 PRINT "Y =", Y
+DIM TITRE$(5)
+TITRE$ = "Bonjour le monde"
+PRINT "Titre tronque :", TITRE$

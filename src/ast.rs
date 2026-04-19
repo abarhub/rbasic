@@ -8,6 +8,7 @@ pub enum Expr {
 #[derive(Debug, Clone)]
 pub enum Statement {
     Let { var: String, value: Expr },
+    Dim { var: String, size: usize },
     Print { values: Vec<Expr> },
 }
 

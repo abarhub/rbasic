@@ -1,7 +1,6 @@
 use chumsky::prelude::*;
 use crate::ast::*;
 
-// Espaces horizontaux seulement (pas les sauts de ligne)
 fn hspace() -> impl Parser<char, (), Error = Simple<char>> {
     filter(|c: &char| *c == ' ' || *c == '\t').repeated().ignored()
 }
@@ -17,30 +16,56 @@ fn string_lit() -> impl Parser<char, String, Error = Simple<char>> {
         .map(|chars| chars.into_iter().collect())
 }
 
+// Identifiant avec $ optionnel en suffixe pour les variables chaînes
+fn var_name() -> impl Parser<char, String, Error = Simple<char>> {
+    text::ident()
+        .then(just('$').or_not())
+        .map(|(name, dollar): (String, Option<char>)| {
+            if dollar.is_some() {
+                format!("{}$", name)
+            } else {
+                name
+            }
+        })
+}
+
 fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
     string_lit().map(Expr::StringLit)
         .or(integer().map(Expr::Integer))
-        .or(text::ident().map(Expr::Variable))
+        .or(var_name().map(Expr::Variable))
 }
 
 fn assign_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
     let with_let = text::keyword("LET")
         .ignore_then(hspace())
-        .ignore_then(text::ident())
+        .ignore_then(var_name())
         .then_ignore(hspace())
         .then_ignore(just('='))
         .then_ignore(hspace())
-        .then(integer().map(Expr::Integer))
+        .then(expr())
         .map(|(var, value)| Statement::Let { var, value });
 
-    let without_let = text::ident()
+    let without_let = var_name()
         .then_ignore(hspace())
         .then_ignore(just('='))
         .then_ignore(hspace())
-        .then(integer().map(Expr::Integer))
+        .then(expr())
         .map(|(var, value)| Statement::Let { var, value });
 
     with_let.or(without_let)
+}
+
+fn dim_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("DIM")
+        .ignore_then(hspace())
+        .ignore_then(var_name())
+        .then_ignore(hspace())
+        .then_ignore(just('('))
+        .then_ignore(hspace())
+        .then(integer().map(|n| n as usize))
+        .then_ignore(hspace())
+        .then_ignore(just(')'))
+        .map(|(var, size)| Statement::Dim { var, size })
 }
 
 fn print_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
@@ -55,7 +80,7 @@ fn print_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
 }
 
 fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
-    print_stmt().or(assign_stmt())
+    dim_stmt().or(print_stmt()).or(assign_stmt())
 }
 
 fn line() -> impl Parser<char, Line, Error = Simple<char>> {
@@ -106,7 +131,7 @@ mod tests {
         assert!(l.number.is_none());
     }
 
-    // --- Affectation ---
+    // --- Affectation entière ---
 
     #[test]
     fn test_let_with_keyword() {
@@ -125,6 +150,47 @@ mod tests {
         let l = line0("20 LET Y = 7");
         assert_eq!(l.number, Some(20));
         assert!(matches!(l.statement, Statement::Let { var, value: Expr::Integer(7) } if var == "Y"));
+    }
+
+    // --- Affectation chaîne ---
+
+    #[test]
+    fn test_let_string_variable_direct() {
+        let s = stmt(r#"A$ = "bonjour""#);
+        assert!(matches!(s, Statement::Let { var, value: Expr::StringLit(_) } if var == "A$"));
+    }
+
+    #[test]
+    fn test_let_string_variable_with_let() {
+        let s = stmt(r#"LET NOM$ = "Alice""#);
+        assert!(matches!(s, Statement::Let { var, value: Expr::StringLit(v) } if var == "NOM$" && v == "Alice"));
+    }
+
+    #[test]
+    fn test_let_string_variable_from_string_var() {
+        let s = stmt("A$ = B$");
+        assert!(matches!(s, Statement::Let { var, value: Expr::Variable(src) } if var == "A$" && src == "B$"));
+    }
+
+    // --- DIM ---
+
+    #[test]
+    fn test_dim_string_variable() {
+        let s = stmt("DIM NOM$(20)");
+        assert!(matches!(s, Statement::Dim { var, size: 20 } if var == "NOM$"));
+    }
+
+    #[test]
+    fn test_dim_with_spaces() {
+        let s = stmt("DIM NOM$( 30 )");
+        assert!(matches!(s, Statement::Dim { var, size: 30 } if var == "NOM$"));
+    }
+
+    #[test]
+    fn test_dim_with_line_number() {
+        let l = line0("10 DIM TITRE$(50)");
+        assert_eq!(l.number, Some(10));
+        assert!(matches!(l.statement, Statement::Dim { var, size: 50 } if var == "TITRE$"));
     }
 
     // --- PRINT ---
@@ -151,6 +217,14 @@ mod tests {
         let s = stmt("PRINT X");
         if let Statement::Print { values } = s {
             assert!(matches!(&values[0], Expr::Variable(v) if v == "X"));
+        }
+    }
+
+    #[test]
+    fn test_print_string_variable() {
+        let s = stmt("PRINT A$");
+        if let Statement::Print { values } = s {
+            assert!(matches!(&values[0], Expr::Variable(v) if v == "A$"));
         }
     }
 
