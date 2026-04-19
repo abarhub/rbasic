@@ -104,6 +104,7 @@ pub fn run_with_output(program: &Program, output: &mut dyn Write) {
 
     for line in &program.lines {
         match &line.statement {
+            Statement::Rem => {}
             Statement::Dim { var, size } => {
                 state.str_dims.insert(var.clone(), *size);
                 state.str_vars.entry(var.clone()).or_insert_with(String::new);
