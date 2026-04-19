@@ -170,8 +170,14 @@ fn print_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
         .map(|values| Statement::Print { values })
 }
 
+fn rem_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("REM")
+        .ignore_then(filter(|c: &char| *c != '\n' && *c != '\r').repeated())
+        .to(Statement::Rem)
+}
+
 fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
-    dim_stmt().or(print_stmt()).or(assign_stmt())
+    rem_stmt().or(dim_stmt()).or(print_stmt()).or(assign_stmt())
 }
 
 fn line() -> impl Parser<char, Line, Error = Simple<char>> {
