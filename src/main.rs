@@ -1,10 +1,8 @@
-mod ast;
-mod parser;
-mod interpreter;
-
 use std::env;
 use std::fs;
 use std::process;
+
+use rbasic::{interpreter, parser};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
