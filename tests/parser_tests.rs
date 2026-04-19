@@ -391,3 +391,89 @@ fn test_precedence_or_avant_xor() {
     assert!(matches!(op, Op::Xor));
     assert!(matches!(*r, Expr::BinOp { op: Op::Or, .. }));
 }
+
+// --- Labels ---
+
+#[test]
+fn test_label_stmt() {
+    let s = stmt("MonLabel:");
+    assert!(matches!(s, Statement::Label(ref n) if n == "MonLabel"));
+}
+
+// --- GOTO ---
+
+#[test]
+fn test_goto_line_number() {
+    let s = stmt("GOTO 10");
+    assert!(matches!(s, Statement::Goto(rbasic::ast::JumpTarget::LineNumber(10))));
+}
+
+#[test]
+fn test_goto_label() {
+    let s = stmt("GOTO MonLabel");
+    assert!(matches!(s, Statement::Goto(rbasic::ast::JumpTarget::Label(ref n)) if n == "MonLabel"));
+}
+
+// --- IF ---
+
+#[test]
+fn test_if_then_no_else() {
+    let s = stmt("IF 1 THEN X = 2");
+    assert!(matches!(s, Statement::If { else_stmt: None, .. }));
+}
+
+#[test]
+fn test_if_then_else() {
+    let s = stmt("IF 1 THEN X = 2 ELSE X = 3");
+    assert!(matches!(s, Statement::If { else_stmt: Some(_), .. }));
+}
+
+#[test]
+fn test_if_condition_variable() {
+    let s = stmt("IF X THEN Y = 1");
+    if let Statement::If { cond, .. } = s {
+        assert!(matches!(cond, Expr::Variable(ref n) if n == "X"));
+    } else {
+        panic!("Expected IF");
+    }
+}
+
+// --- FOR / NEXT ---
+
+#[test]
+fn test_for_basic() {
+    let s = stmt("FOR I = 1 TO 10");
+    assert!(matches!(s, Statement::For { ref var, step: None, .. } if var == "I"));
+}
+
+#[test]
+fn test_for_with_step() {
+    let s = stmt("FOR I = 0 TO 20 STEP 2");
+    assert!(matches!(s, Statement::For { ref var, step: Some(_), .. } if var == "I"));
+}
+
+#[test]
+fn test_next_with_var() {
+    let s = stmt("NEXT I");
+    assert!(matches!(s, Statement::Next { var: Some(ref v) } if v == "I"));
+}
+
+#[test]
+fn test_next_without_var() {
+    let s = stmt("NEXT");
+    assert!(matches!(s, Statement::Next { var: None }));
+}
+
+// --- WHILE / WEND ---
+
+#[test]
+fn test_while_stmt() {
+    let s = stmt("WHILE X > 0");
+    assert!(matches!(s, Statement::While { .. }));
+}
+
+#[test]
+fn test_wend_stmt() {
+    let s = stmt("WEND");
+    assert!(matches!(s, Statement::Wend));
+}
