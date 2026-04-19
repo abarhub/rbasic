@@ -39,7 +39,26 @@ fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
         // --- atom ---
         let atom = string_lit().map(Expr::StringLit)
             .or(integer().map(Expr::Integer))
-            .or(var_name().map(Expr::Variable))
+            .or(var_name()
+                .then(
+                    hspace()
+                        .ignore_then(just('('))
+                        .ignore_then(hspace())
+                        .ignore_then(
+                            expr_rec.clone()
+                                .then_ignore(hspace())
+                                .separated_by(just(',').then_ignore(hspace()))
+                                .at_least(1)
+                        )
+                        .then_ignore(hspace())
+                        .then_ignore(just(')'))
+                        .or_not()
+                )
+                .map(|(name, opt_indices)| match opt_indices {
+                    Some(indices) => Expr::ArrayAccess { name, indices },
+                    None => Expr::Variable(name),
+                })
+            )
             .or(just('(')
                 .ignore_then(hspace())
                 .ignore_then(expr_rec)
@@ -153,10 +172,36 @@ fn dim_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
         .then_ignore(hspace())
         .then_ignore(just('('))
         .then_ignore(hspace())
-        .then(integer().map(|n| n as usize))
+        .then(
+            integer()
+                .map(|n| n as usize)
+                .then_ignore(hspace())
+                .separated_by(just(',').then_ignore(hspace()))
+                .at_least(1)
+        )
         .then_ignore(hspace())
         .then_ignore(just(')'))
-        .map(|(var, size)| Statement::Dim { var, size })
+        .map(|(var, dims)| Statement::Dim { var, dims })
+}
+
+fn array_set_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    var_name()
+        .then_ignore(hspace())
+        .then_ignore(just('('))
+        .then_ignore(hspace())
+        .then(
+            expr()
+                .then_ignore(hspace())
+                .separated_by(just(',').then_ignore(hspace()))
+                .at_least(1)
+        )
+        .then_ignore(hspace())
+        .then_ignore(just(')'))
+        .then_ignore(hspace())
+        .then_ignore(just('='))
+        .then_ignore(hspace())
+        .then(expr())
+        .map(|((name, indices), value)| Statement::ArraySet { name, indices, value })
 }
 
 fn print_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
@@ -280,6 +325,7 @@ fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
             .or(return_stmt())
             .or(goto_stmt())
             .or(if_stmt)
+            .or(array_set_stmt())
             .or(label_stmt())
             .or(assign_stmt())
     })

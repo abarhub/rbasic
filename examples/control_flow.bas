@@ -106,3 +106,42 @@ COMPTEUR = COMPTEUR + 1
 RETURN
 
 fin_programme:
+
+REM --- Tableaux ---
+PRINT "=== Tableau 1D entier ==="
+DIM NOTES(4)
+FOR I = 0 TO 4
+NOTES(I) = (I + 1) * 10
+NEXT I
+FOR I = 0 TO 4
+PRINT "NOTES(", I, ") =", NOTES(I)
+NEXT I
+
+PRINT "=== Tableau 1D chaine ==="
+DIM PRENOMS$(2)
+PRENOMS$(0) = "Alice"
+PRENOMS$(1) = "Bob"
+PRENOMS$(2) = "Charlie"
+FOR I = 0 TO 2
+PRINT PRENOMS$(I)
+NEXT I
+
+PRINT "=== Tableau 2D (matrice 3x3) ==="
+DIM MAT(2, 2)
+FOR I = 0 TO 2
+FOR J = 0 TO 2
+MAT(I, J) = I * 3 + J
+NEXT J
+NEXT I
+PRINT MAT(0, 0), MAT(0, 2), MAT(2, 0), MAT(2, 2)
+
+PRINT "=== Somme tableau ==="
+DIM V(4)
+FOR I = 0 TO 4
+V(I) = I * I
+NEXT I
+S = 0
+FOR I = 0 TO 4
+S = S + V(I)
+NEXT I
+PRINT "Somme des carres 0..4 =", S

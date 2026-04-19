@@ -69,20 +69,66 @@ fn test_let_string_variable_from_string_var() {
 #[test]
 fn test_dim_string_variable() {
     let s = stmt("DIM NOM$(20)");
-    assert!(matches!(s, Statement::Dim { var, size: 20 } if var == "NOM$"));
+    assert!(matches!(s, Statement::Dim { ref var, ref dims } if var == "NOM$" && dims == &[20]));
 }
 
 #[test]
 fn test_dim_with_spaces() {
     let s = stmt("DIM NOM$( 30 )");
-    assert!(matches!(s, Statement::Dim { var, size: 30 } if var == "NOM$"));
+    assert!(matches!(s, Statement::Dim { ref var, ref dims } if var == "NOM$" && dims == &[30]));
 }
 
 #[test]
 fn test_dim_with_line_number() {
     let l = line0("10 DIM TITRE$(50)");
     assert_eq!(l.number, Some(10));
-    assert!(matches!(l.statement, Statement::Dim { var, size: 50 } if var == "TITRE$"));
+    assert!(matches!(l.statement, Statement::Dim { ref var, ref dims } if var == "TITRE$" && dims == &[50]));
+}
+
+#[test]
+fn test_dim_int_array_1d() {
+    let s = stmt("DIM A(10)");
+    assert!(matches!(s, Statement::Dim { ref var, ref dims } if var == "A" && dims == &[10]));
+}
+
+#[test]
+fn test_dim_int_array_2d() {
+    let s = stmt("DIM B(3, 4)");
+    assert!(matches!(s, Statement::Dim { ref var, ref dims } if var == "B" && dims == &[3, 4]));
+}
+
+#[test]
+fn test_dim_str_array_2d() {
+    let s = stmt("DIM C$(2, 5)");
+    assert!(matches!(s, Statement::Dim { ref var, ref dims } if var == "C$" && dims == &[2, 5]));
+}
+
+#[test]
+fn test_array_set_1d() {
+    let s = stmt("A(2) = 42");
+    assert!(matches!(s, Statement::ArraySet { ref name, .. } if name == "A"));
+}
+
+#[test]
+fn test_array_set_2d() {
+    let s = stmt("B(1, 3) = 99");
+    if let Statement::ArraySet { name, indices, .. } = s {
+        assert_eq!(name, "B");
+        assert_eq!(indices.len(), 2);
+    } else {
+        panic!("Expected ArraySet");
+    }
+}
+
+#[test]
+fn test_array_access_in_expr() {
+    let s = stmt("X = A(0)");
+    if let Statement::Let { value: Expr::ArrayAccess { ref name, ref indices }, .. } = s {
+        assert_eq!(name, "A");
+        assert_eq!(indices.len(), 1);
+    } else {
+        panic!("Expected Let with ArrayAccess");
+    }
 }
 
 // --- PRINT ---
