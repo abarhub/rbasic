@@ -1,0 +1,36 @@
+=== LEN, ASC, CHR$ ===
+LEN(Bonjour) = 7
+ASC(A) = 65
+CHR$(65) = A
+CHR$(ASC(Z)) = Z
+=== STR$, VAL ===
+STR$(42) = |42|
+VAL(123) = 123
+VAL(-7) = -7
+VAL(abc) = 0
+=== LEFT$, RIGHT$, MID$ ===
+LEFT$(S$, 7) = Bonjour
+RIGHT$(S$, 5) = monde
+MID$(S$, 9, 2) = le
+MID$(S$, 9) = le monde
+=== UCASE$, LCASE$ ===
+BONJOUR
+monde
+=== LTRIM$, RTRIM$ ===
+|hello  |
+|  hello|
+=== SPACE$ ===
+|     |
+=== INSTR ===
+INSTR(Bonjour, jour) = 4
+INSTR(Bonjour, xyz) = 0
+INSTR(2, abcabc, a) = 4
+=== ABS, SGN, SQR ===
+ABS(-42) = 42
+SGN(-5) = -1
+SGN(0) = 0
+SGN(3) = 1
+SQR(25) = 5
+=== Combinaisons ===
+Longueur de STR$(12345) = 5
+Nombre extrait = 99

@@ -1,0 +1,59 @@
+=== GOTO ===
+apres le GOTO
+=== IF / THEN / ELSE ===
+X est grand
+X >= 5
+Note : exactement 7
+=== GOTO avec numeros ===
+ligne 30 atteinte
+=== FOR / NEXT ===
+I = 1
+I = 2
+I = 3
+I = 4
+I = 5
+=== FOR avec STEP 2 ===
+0
+2
+4
+6
+8
+10
+=== Compte a rebours ===
+5
+4
+3
+2
+1
+Decollage !
+=== Somme 1..10 ===
+Somme = 55
+=== WHILE / WEND ===
+C = 1
+C = 2
+C = 3
+C = 4
+C = 5
+=== WHILE jamais execute ===
+WHILE 0 ignore
+=== Factorielle de 6 ===
+6! = 720
+=== GOSUB / RETURN ===
+Calcul de 5! avec GOSUB
+5! = 120
+Appels multiples :
+Compteur = 3
+=== Tableau 1D entier ===
+NOTES( 0 ) = 10
+NOTES( 1 ) = 20
+NOTES( 2 ) = 30
+NOTES( 3 ) = 40
+NOTES( 4 ) = 50
+=== Tableau 1D chaine ===
+Alice
+Bob
+Charlie
+=== Tableau 2D (matrice 3x3) ===
+0 2 6 8
+=== Somme tableau ===
+Somme des carres 0..4 = 30

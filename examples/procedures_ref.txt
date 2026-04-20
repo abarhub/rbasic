@@ -1,0 +1,25 @@
+=== Appel simple ===
+Bonjour !
+Bonjour !
+=== Parametre entier ===
+Double de 5 = 10
+Double de 21 = 42
+=== Parametre chaine ===
+Salut, Alice
+Salut, Bob
+=== Plusieurs parametres ===
+Aire 6 x 4 = 24
+Aire 10 x 3 = 30
+=== Variables locales ===
+X dans SUB = 999
+X apres CALL = 100
+=== SUB avec boucle ===
+1
+2
+3
+4
+5
+=== SUB imbriques ===
+debut Externe
+dans Interne
+fin Externe

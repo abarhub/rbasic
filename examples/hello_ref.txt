@@ -1,0 +1,4 @@
+Bonjour Alice
+X = 42
+Y = 8
+Titre tronque : Bonjo

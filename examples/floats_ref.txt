@@ -1,0 +1,21 @@
+=== Litteraux flottants ===
+3.14
+2.5
+0.001
+=== Arithmetique flottante ===
+4
+3.75
+10
+2.5
+=== Division entiere vs flottante ===
+10 / 3 = 3
+10.0 / 3 = 3.3333333
+=== Mixte entier + flottant ===
+1.5
+4.5
+=== Variables flottantes ===
+Pi = 3.14159
+R = 5
+Perimetre = 31.4159
+=== Fonctions ===
+SQR(2) = 1.4142136
