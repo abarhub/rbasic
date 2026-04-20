@@ -827,3 +827,51 @@ fn test_beep_stmt() {
     let s = stmt("BEEP");
     assert!(matches!(s, Statement::Beep));
 }
+
+// --- END ---
+
+#[test]
+fn test_end_stmt() {
+    let s = stmt("END");
+    assert!(matches!(s, Statement::End));
+}
+
+// --- Instructions multiples sur une ligne (:) ---
+
+fn stmts(source: &str) -> Vec<Statement> {
+    rbasic::parser::parse(source)
+        .expect("parse error")
+        .lines
+        .into_iter()
+        .map(|l| l.statement)
+        .collect()
+}
+
+#[test]
+fn test_multistatement_deux_stmts() {
+    let v = stmts("A = 1 : B = 2");
+    assert_eq!(v.len(), 2);
+    assert!(matches!(&v[0], Statement::Let { var, .. } if var == "A"));
+    assert!(matches!(&v[1], Statement::Let { var, .. } if var == "B"));
+}
+
+#[test]
+fn test_multistatement_trois_stmts() {
+    let v = stmts("A = 1 : B = 2 : PRINT A");
+    assert_eq!(v.len(), 3);
+}
+
+#[test]
+fn test_multistatement_numero_de_ligne_premier_seulement() {
+    let prog = rbasic::parser::parse("10 A = 1 : B = 2").expect("parse error");
+    assert_eq!(prog.lines[0].number, Some(10));
+    assert_eq!(prog.lines[1].number, None);
+}
+
+#[test]
+fn test_multistatement_rem_consomme_tout() {
+    // REM consomme jusqu'à la fin de ligne : rien après
+    let v = stmts("REM ceci est un commentaire : pas un stmt");
+    assert_eq!(v.len(), 1);
+    assert!(matches!(v[0], Statement::Rem));
+}

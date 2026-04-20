@@ -419,6 +419,21 @@ impl State {
                     }
                     // Comparaisons : résultat entier -1 (vrai) ou 0 (faux)
                     Op::Eq | Op::Ne | Op::Lt | Op::Gt | Op::Le | Op::Ge => {
+                        // Comparaison de chaînes si au moins un membre est une chaîne
+                        if Self::is_string_expr(left) || Self::is_string_expr(right) {
+                            let l = self.eval_str(left);
+                            let r = self.eval_str(right);
+                            let result = match op {
+                                Op::Eq => l == r,
+                                Op::Ne => l != r,
+                                Op::Lt => l <  r,
+                                Op::Gt => l >  r,
+                                Op::Le => l <= r,
+                                Op::Ge => l >= r,
+                                _ => unreachable!(),
+                            };
+                            return Value::Int(if result { -1 } else { 0 });
+                        }
                         let l = self.eval_num(left);
                         let r = self.eval_num(right);
                         let result = if l.is_float() || r.is_float() {
@@ -1094,6 +1109,12 @@ fn exec_stmt(
             }
             pc + 1
         }
+
+        // -----------------------------------------------------------------------
+        // END — termine immédiatement l'exécution du programme
+        // -----------------------------------------------------------------------
+
+        Statement::End => lines.len(), // fait sortir la boucle while pc < lines.len()
     }
 }
 

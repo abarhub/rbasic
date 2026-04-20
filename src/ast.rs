@@ -91,6 +91,9 @@ pub enum Statement {
     Cls,
     /// BEEP — émet un son (BEL)
     Beep,
+    // --- Fin de programme ---
+    /// END — termine l'exécution du programme
+    End,
 }
 
 #[derive(Debug, Clone)]
