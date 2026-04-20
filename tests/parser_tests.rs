@@ -687,3 +687,99 @@ fn test_randomize_timer() {
     let s = stmt("RANDOMIZE TIMER");
     assert!(matches!(s, Statement::Randomize { seed: Expr::Variable(ref v) } if v == "TIMER"));
 }
+
+// --- IF multiligne ---
+
+#[test]
+fn test_if_then_stmt() {
+    let s = stmt("IF X > 0 THEN");
+    assert!(matches!(s, Statement::IfThen { .. }));
+}
+
+#[test]
+fn test_elseif_stmt() {
+    let s = stmt("ELSEIF X = 2 THEN");
+    assert!(matches!(s, Statement::ElseIf { .. }));
+}
+
+#[test]
+fn test_else_stmt() {
+    let s = stmt("ELSE");
+    assert!(matches!(s, Statement::Else));
+}
+
+#[test]
+fn test_end_if_stmt() {
+    let s = stmt("END IF");
+    assert!(matches!(s, Statement::EndIf));
+}
+
+#[test]
+fn test_if_multiline_program_parses() {
+    let src = "IF X > 0 THEN\n    PRINT \"pos\"\nELSEIF X = 0 THEN\n    PRINT \"zero\"\nELSE\n    PRINT \"neg\"\nEND IF";
+    let prog = rbasic::parser::parse(src).expect("parse error");
+    assert_eq!(prog.lines.len(), 7);
+    assert!(matches!(prog.lines[0].statement, Statement::IfThen { .. }));
+    assert!(matches!(prog.lines[2].statement, Statement::ElseIf { .. }));
+    assert!(matches!(prog.lines[4].statement, Statement::Else));
+    assert!(matches!(prog.lines[6].statement, Statement::EndIf));
+}
+
+// --- DO/LOOP ---
+
+use rbasic::ast::DoCondition;
+
+#[test]
+fn test_do_while_stmt() {
+    let s = stmt("DO WHILE X < 10");
+    assert!(matches!(s, Statement::DoLoop { pre_cond: Some(DoCondition::While(_)) }));
+}
+
+#[test]
+fn test_do_until_stmt() {
+    let s = stmt("DO UNTIL X >= 10");
+    assert!(matches!(s, Statement::DoLoop { pre_cond: Some(DoCondition::Until(_)) }));
+}
+
+#[test]
+fn test_do_bare_stmt() {
+    let s = stmt("DO");
+    assert!(matches!(s, Statement::DoLoop { pre_cond: None }));
+}
+
+#[test]
+fn test_loop_bare_stmt() {
+    let s = stmt("LOOP");
+    assert!(matches!(s, Statement::Loop { post_cond: None }));
+}
+
+#[test]
+fn test_loop_while_stmt() {
+    let s = stmt("LOOP WHILE I < 5");
+    assert!(matches!(s, Statement::Loop { post_cond: Some(DoCondition::While(_)) }));
+}
+
+#[test]
+fn test_loop_until_stmt() {
+    let s = stmt("LOOP UNTIL I >= 5");
+    assert!(matches!(s, Statement::Loop { post_cond: Some(DoCondition::Until(_)) }));
+}
+
+// --- DECLARE SUB ---
+
+#[test]
+fn test_declare_sub_no_params() {
+    let s = stmt("DECLARE SUB Salut()");
+    assert!(matches!(s, Statement::DeclareSub { ref name, ref params } if name == "Salut" && params.is_empty()));
+}
+
+#[test]
+fn test_declare_sub_with_params() {
+    let s = stmt("DECLARE SUB Double(N, M)");
+    if let Statement::DeclareSub { name, params } = s {
+        assert_eq!(name, "Double");
+        assert_eq!(params, vec!["N", "M"]);
+    } else {
+        panic!("Expected DeclareSub");
+    }
+}

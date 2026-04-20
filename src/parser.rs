@@ -268,24 +268,27 @@ fn return_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
     text::keyword("RETURN").to(Statement::Return)
 }
 
+// Paramètres partagés entre SUB, DECLARE SUB
+fn param_list() -> impl Parser<char, Vec<String>, Error = Simple<char>> {
+    hspace()
+        .ignore_then(just('('))
+        .ignore_then(hspace())
+        .ignore_then(
+            var_name()
+                .then_ignore(hspace())
+                .separated_by(just(',').then_ignore(hspace()))
+        )
+        .then_ignore(hspace())
+        .then_ignore(just(')'))
+        .or_not()
+        .map(|opt| opt.unwrap_or_default())
+}
+
 fn sub_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
     text::keyword("SUB")
         .ignore_then(hspace())
         .ignore_then(text::ident())
-        .then(
-            hspace()
-                .ignore_then(just('('))
-                .ignore_then(hspace())
-                .ignore_then(
-                    var_name()
-                        .then_ignore(hspace())
-                        .separated_by(just(',').then_ignore(hspace()))
-                )
-                .then_ignore(hspace())
-                .then_ignore(just(')'))
-                .or_not()
-                .map(|opt| opt.unwrap_or_default())
-        )
+        .then(param_list())
         .map(|(name, params)| Statement::SubDef { name, params })
 }
 
@@ -294,6 +297,16 @@ fn end_sub_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
         .ignore_then(hspace())
         .ignore_then(text::keyword("SUB"))
         .to(Statement::EndSub)
+}
+
+fn declare_sub_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("DECLARE")
+        .ignore_then(hspace())
+        .ignore_then(text::keyword("SUB"))
+        .ignore_then(hspace())
+        .ignore_then(text::ident())
+        .then(param_list())
+        .map(|(name, params)| Statement::DeclareSub { name, params })
 }
 
 fn call_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
@@ -378,9 +391,75 @@ fn wend_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
     text::keyword("WEND").to(Statement::Wend)
 }
 
+// ---------------------------------------------------------------------------
+// DO / LOOP
+// ---------------------------------------------------------------------------
+
+fn do_condition() -> impl Parser<char, DoCondition, Error = Simple<char>> {
+    text::keyword("WHILE")
+        .ignore_then(hspace())
+        .ignore_then(expr())
+        .map(DoCondition::While)
+    .or(
+        text::keyword("UNTIL")
+            .ignore_then(hspace())
+            .ignore_then(expr())
+            .map(DoCondition::Until)
+    )
+}
+
+fn do_loop_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("DO")
+        .ignore_then(
+            hspace()
+                .ignore_then(do_condition())
+                .or_not()
+        )
+        .map(|pre_cond| Statement::DoLoop { pre_cond })
+}
+
+fn loop_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("LOOP")
+        .ignore_then(
+            hspace()
+                .ignore_then(do_condition())
+                .or_not()
+        )
+        .map(|post_cond| Statement::Loop { post_cond })
+}
+
+// ---------------------------------------------------------------------------
+// IF multiligne
+// ---------------------------------------------------------------------------
+
+fn elseif_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("ELSEIF")
+        .ignore_then(hspace())
+        .ignore_then(expr())
+        .then_ignore(hspace())
+        .then_ignore(text::keyword("THEN"))
+        .map(|cond| Statement::ElseIf { cond })
+}
+
+fn else_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("ELSE").to(Statement::Else)
+}
+
+fn end_if_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("END")
+        .ignore_then(hspace())
+        .ignore_then(text::keyword("IF"))
+        .to(Statement::EndIf)
+}
+
+// ---------------------------------------------------------------------------
+// statement()
+// ---------------------------------------------------------------------------
+
 fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
     recursive(|stmt_rec| {
-        let if_stmt = text::keyword("IF")
+        // --- IF sur une seule ligne ---
+        let if_singleline = text::keyword("IF")
             .ignore_then(hspace())
             .ignore_then(expr())
             .then_ignore(hspace())
@@ -400,8 +479,20 @@ fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
                 else_stmt: else_stmt.map(Box::new),
             });
 
+        // --- IF multiligne : IF cond THEN  (rien après THEN sur la ligne) ---
+        let if_multiline = text::keyword("IF")
+            .ignore_then(hspace())
+            .ignore_then(expr())
+            .then_ignore(hspace())
+            .then_ignore(text::keyword("THEN"))
+            .map(|cond| Statement::IfThen { cond });
+
         rem_stmt()
+            // END … doit être tenté avant les mots-clés solo (END IF avant END SUB)
+            .or(end_if_stmt())
             .or(end_sub_stmt())
+            // DECLARE avant SUB (contient SUB comme second mot-clé)
+            .or(declare_sub_stmt())
             .or(sub_stmt())
             .or(call_stmt())
             .or(dim_stmt())
@@ -410,12 +501,20 @@ fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
             .or(next_stmt())
             .or(while_stmt())
             .or(wend_stmt())
+            // DO/LOOP
+            .or(do_loop_stmt())
+            .or(loop_stmt())
             .or(gosub_stmt())
             .or(return_stmt())
             .or(goto_stmt())
             .or(sleep_stmt())
             .or(randomize_stmt())
-            .or(if_stmt)
+            // ELSEIF avant ELSE (ELSEIF contient ELSE comme préfixe)
+            .or(elseif_stmt())
+            .or(else_stmt())
+            // IF sur une ligne en premier, multiligne en fallback
+            .or(if_singleline)
+            .or(if_multiline)
             .or(array_set_stmt())
             .or(label_stmt())
             .or(assign_stmt())

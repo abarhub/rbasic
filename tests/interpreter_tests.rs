@@ -1050,3 +1050,133 @@ fn test_sleep_zero() {
 fn test_sleep_puis_print() {
     assert_eq!(run_program("SLEEP 0\nPRINT \"apres\""), "apres\n");
 }
+
+// --- IF multiligne ---
+
+#[test]
+fn test_if_multiline_true() {
+    let src = "X = 5\nIF X > 3 THEN\n    PRINT \"grand\"\nEND IF";
+    assert_eq!(run_program(src), "grand\n");
+}
+
+#[test]
+fn test_if_multiline_false() {
+    let src = "X = 1\nIF X > 3 THEN\n    PRINT \"grand\"\nEND IF\nPRINT \"fin\"";
+    assert_eq!(run_program(src), "fin\n");
+}
+
+#[test]
+fn test_if_multiline_else_true() {
+    let src = "X = 5\nIF X > 3 THEN\n    PRINT \"A\"\nELSE\n    PRINT \"B\"\nEND IF";
+    assert_eq!(run_program(src), "A\n");
+}
+
+#[test]
+fn test_if_multiline_else_false() {
+    let src = "X = 1\nIF X > 3 THEN\n    PRINT \"A\"\nELSE\n    PRINT \"B\"\nEND IF";
+    assert_eq!(run_program(src), "B\n");
+}
+
+#[test]
+fn test_if_multiline_elseif_first_branch() {
+    let src = "X = 1\nIF X = 1 THEN\n    PRINT \"un\"\nELSEIF X = 2 THEN\n    PRINT \"deux\"\nELSE\n    PRINT \"autre\"\nEND IF";
+    assert_eq!(run_program(src), "un\n");
+}
+
+#[test]
+fn test_if_multiline_elseif_second_branch() {
+    let src = "X = 2\nIF X = 1 THEN\n    PRINT \"un\"\nELSEIF X = 2 THEN\n    PRINT \"deux\"\nELSE\n    PRINT \"autre\"\nEND IF";
+    assert_eq!(run_program(src), "deux\n");
+}
+
+#[test]
+fn test_if_multiline_elseif_else_branch() {
+    let src = "X = 9\nIF X = 1 THEN\n    PRINT \"un\"\nELSEIF X = 2 THEN\n    PRINT \"deux\"\nELSE\n    PRINT \"autre\"\nEND IF";
+    assert_eq!(run_program(src), "autre\n");
+}
+
+#[test]
+fn test_if_multiline_nested() {
+    let src = "A = 1\nB = 2\nIF A = 1 THEN\n    IF B = 2 THEN\n        PRINT \"ok\"\n    END IF\nEND IF";
+    assert_eq!(run_program(src), "ok\n");
+}
+
+#[test]
+fn test_if_multiline_nested_inner_false() {
+    let src = "A = 1\nB = 0\nIF A = 1 THEN\n    IF B = 2 THEN\n        PRINT \"non\"\n    END IF\n    PRINT \"oui\"\nEND IF";
+    assert_eq!(run_program(src), "oui\n");
+}
+
+#[test]
+fn test_if_multiline_multiple_stmts_in_body() {
+    let src = "X = 5\nIF X > 0 THEN\n    PRINT \"a\"\n    PRINT \"b\"\nEND IF";
+    assert_eq!(run_program(src), "a\nb\n");
+}
+
+// --- DO/LOOP ---
+
+#[test]
+fn test_do_while_loop() {
+    let src = "I = 0\nDO WHILE I < 3\n    PRINT I\n    I = I + 1\nLOOP";
+    assert_eq!(run_program(src), "0\n1\n2\n");
+}
+
+#[test]
+fn test_do_while_zero_iterations() {
+    let src = "I = 5\nDO WHILE I < 3\n    PRINT I\n    I = I + 1\nLOOP\nPRINT \"fin\"";
+    assert_eq!(run_program(src), "fin\n");
+}
+
+#[test]
+fn test_do_until_loop() {
+    let src = "I = 0\nDO UNTIL I >= 3\n    PRINT I\n    I = I + 1\nLOOP";
+    assert_eq!(run_program(src), "0\n1\n2\n");
+}
+
+#[test]
+fn test_do_until_zero_iterations() {
+    // DO UNTIL cond : si cond est déjà vraie, zéro itération
+    let src = "I = 1\nDO UNTIL I < 3\n    PRINT I\nLOOP\nPRINT \"fin\"";
+    assert_eq!(run_program(src), "fin\n");
+}
+
+#[test]
+fn test_do_loop_while_post() {
+    // Post-condition : au moins une itération même si fausse dès le départ
+    let src = "I = 5\nDO\n    PRINT I\n    I = I + 1\nLOOP WHILE I < 3\nPRINT \"fin\"";
+    assert_eq!(run_program(src), "5\nfin\n");
+}
+
+#[test]
+fn test_do_loop_until_post() {
+    let src = "I = 0\nDO\n    PRINT I\n    I = I + 1\nLOOP UNTIL I >= 3";
+    assert_eq!(run_program(src), "0\n1\n2\n");
+}
+
+#[test]
+fn test_do_loop_infinite_break_via_goto() {
+    // DO...LOOP sans condition — on sort via GOTO
+    let src = "I = 0\nDO\n    PRINT I\n    I = I + 1\n    IF I >= 3 THEN GOTO fin\nLOOP\nfin:\nPRINT \"stop\"";
+    assert_eq!(run_program(src), "0\n1\n2\nstop\n");
+}
+
+#[test]
+fn test_do_while_several_iterations() {
+    let src = "S = 0\nI = 1\nDO WHILE I <= 5\n    S = S + I\n    I = I + 1\nLOOP\nPRINT S";
+    assert_eq!(run_program(src), "15\n");
+}
+
+// --- DECLARE SUB ---
+
+#[test]
+fn test_declare_sub_noop() {
+    // DECLARE SUB est un no-op : le programme doit quand même appeler le SUB
+    let src = "DECLARE SUB Salut()\nCALL Salut\nSUB Salut()\n    PRINT \"bonjour\"\nEND SUB";
+    assert_eq!(run_program(src), "bonjour\n");
+}
+
+#[test]
+fn test_declare_sub_with_params() {
+    let src = "DECLARE SUB Double(N)\nCALL Double(7)\nSUB Double(N)\n    PRINT N * 2\nEND SUB";
+    assert_eq!(run_program(src), "14\n");
+}

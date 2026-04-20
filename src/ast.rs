@@ -32,26 +32,51 @@ pub enum JumpTarget {
     Label(String),
 }
 
+/// Condition pour DO/LOOP
+#[derive(Debug, Clone)]
+pub enum DoCondition {
+    While(Expr),
+    Until(Expr),
+}
+
 #[derive(Debug, Clone)]
 pub enum Statement {
+    // --- Affectation / déclaration ---
     Let   { var: String, value: Expr },
     Dim   { var: String, dims: Vec<usize> },
     ArraySet { name: String, indices: Vec<Expr>, value: Expr },
+    // --- Affichage ---
     Print { values: Vec<Expr> },
+    // --- Commentaire ---
     Rem,
+    // --- Sauts ---
     Label(String),
     Goto(JumpTarget),
-    If { cond: Expr, then_stmt: Box<Statement>, else_stmt: Option<Box<Statement>> },
-    For  { var: String, from: Expr, to: Expr, step: Option<Expr> },
-    Next { var: Option<String> },
-    While { cond: Expr },
-    Wend,
     Gosub(JumpTarget),
     Return,
-    SubDef { name: String, params: Vec<String> },
+    // --- IF sur une ligne ---
+    If { cond: Expr, then_stmt: Box<Statement>, else_stmt: Option<Box<Statement>> },
+    // --- IF multiligne ---
+    IfThen { cond: Expr },
+    ElseIf { cond: Expr },
+    Else,
+    EndIf,
+    // --- FOR/NEXT ---
+    For  { var: String, from: Expr, to: Expr, step: Option<Expr> },
+    Next { var: Option<String> },
+    // --- WHILE/WEND ---
+    While { cond: Expr },
+    Wend,
+    // --- DO/LOOP ---
+    DoLoop { pre_cond: Option<DoCondition> },
+    Loop   { post_cond: Option<DoCondition> },
+    // --- Sous-programmes ---
+    SubDef     { name: String, params: Vec<String> },
     EndSub,
-    Call { name: String, args: Vec<Expr> },
-    Sleep { duration: Expr },
+    Call       { name: String, args: Vec<Expr> },
+    DeclareSub { name: String, params: Vec<String> },
+    // --- Divers ---
+    Sleep     { duration: Expr },
     Randomize { seed: Expr },
 }
 

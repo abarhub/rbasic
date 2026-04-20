@@ -554,6 +554,50 @@ fn find_matching_wend(lines: &[Line], while_pc: usize) -> usize {
     panic!("WEND sans WHILE correspondant");
 }
 
+/// Cherche le prochain ELSEIF / ELSE / END IF au même niveau d'imbrication.
+fn find_next_branch(lines: &[Line], from_pc: usize) -> usize {
+    let mut depth = 0usize;
+    for i in (from_pc + 1)..lines.len() {
+        match &lines[i].statement {
+            Statement::IfThen { .. } => depth += 1,
+            Statement::ElseIf { .. } if depth == 0 => return i,
+            Statement::Else          if depth == 0 => return i,
+            Statement::EndIf         if depth == 0 => return i,
+            Statement::EndIf => { if depth > 0 { depth -= 1; } }
+            _ => {}
+        }
+    }
+    panic!("END IF manquant (find_next_branch)");
+}
+
+/// Cherche le END IF correspondant à un IF THEN multiligne.
+fn find_end_if(lines: &[Line], from_pc: usize) -> usize {
+    let mut depth = 0usize;
+    for i in (from_pc + 1)..lines.len() {
+        match &lines[i].statement {
+            Statement::IfThen { .. } => depth += 1,
+            Statement::EndIf if depth == 0 => return i,
+            Statement::EndIf => { if depth > 0 { depth -= 1; } }
+            _ => {}
+        }
+    }
+    panic!("END IF manquant (find_end_if)");
+}
+
+/// Cherche le LOOP correspondant à un DO.
+fn find_matching_loop(lines: &[Line], do_pc: usize) -> usize {
+    let mut depth = 0usize;
+    for i in (do_pc + 1)..lines.len() {
+        match &lines[i].statement {
+            Statement::DoLoop { .. } => depth += 1,
+            Statement::Loop { .. } if depth == 0 => return i,
+            Statement::Loop { .. } => { if depth > 0 { depth -= 1; } }
+            _ => {}
+        }
+    }
+    panic!("LOOP sans DO correspondant");
+}
+
 // ---------------------------------------------------------------------------
 // exec_stmt
 // ---------------------------------------------------------------------------
@@ -563,10 +607,12 @@ fn exec_stmt(
     pc: usize,
     lines: &[Line],
     state: &mut State,
-    for_stack: &mut Vec<ForFrame>,
+    for_stack:   &mut Vec<ForFrame>,
     while_stack: &mut Vec<usize>,
-    call_stack: &mut Vec<usize>,
-    proc_stack: &mut Vec<ProcFrame>,
+    call_stack:  &mut Vec<usize>,
+    proc_stack:  &mut Vec<ProcFrame>,
+    if_stack:    &mut Vec<bool>,   // true = une branche du IF courant a été exécutée
+    do_stack:    &mut Vec<usize>,  // PC du DO correspondant
     sub_table: &HashMap<String, (usize, Vec<String>)>,
     output: &mut dyn Write,
 ) -> usize {
@@ -620,9 +666,9 @@ fn exec_stmt(
 
         Statement::If { cond, then_stmt, else_stmt } => {
             if state.eval_num(cond).to_i64() != 0 {
-                exec_stmt(then_stmt, pc, lines, state, for_stack, while_stack, call_stack, proc_stack, sub_table, output)
+                exec_stmt(then_stmt, pc, lines, state, for_stack, while_stack, call_stack, proc_stack, if_stack, do_stack, sub_table, output)
             } else if let Some(e) = else_stmt {
-                exec_stmt(e, pc, lines, state, for_stack, while_stack, call_stack, proc_stack, sub_table, output)
+                exec_stmt(e, pc, lines, state, for_stack, while_stack, call_stack, proc_stack, if_stack, do_stack, sub_table, output)
             } else {
                 pc + 1
             }
@@ -763,10 +809,105 @@ fn exec_stmt(
 
         Statement::Randomize { seed } => {
             let v = state.eval_num(seed).to_f64();
-            // On utilise les bits bruts du flottant pour initialiser le seed
             state.rng_seed.set(v.to_bits());
             pc + 1
         }
+
+        // -----------------------------------------------------------------------
+        // IF multiligne
+        // -----------------------------------------------------------------------
+
+        Statement::IfThen { cond } => {
+            if state.eval_num(cond).to_i64() != 0 {
+                if_stack.push(true);   // une branche a été prise
+                pc + 1
+            } else {
+                if_stack.push(false);  // aucune branche prise pour l'instant
+                find_next_branch(lines, pc)
+            }
+        }
+
+        Statement::ElseIf { cond } => {
+            let taken = *if_stack.last()
+                .unwrap_or_else(|| panic!("ELSEIF sans IF correspondant"));
+            if taken {
+                // Une branche précédente a déjà été exécutée → sauter jusqu'à END IF
+                find_end_if(lines, pc)
+            } else if state.eval_num(cond).to_i64() != 0 {
+                *if_stack.last_mut().unwrap() = true;
+                pc + 1
+            } else {
+                find_next_branch(lines, pc)
+            }
+        }
+
+        Statement::Else => {
+            let taken = *if_stack.last()
+                .unwrap_or_else(|| panic!("ELSE sans IF correspondant"));
+            if taken {
+                find_end_if(lines, pc)
+            } else {
+                *if_stack.last_mut().unwrap() = true;
+                pc + 1
+            }
+        }
+
+        Statement::EndIf => {
+            if_stack.pop();
+            pc + 1
+        }
+
+        // -----------------------------------------------------------------------
+        // DO / LOOP
+        // -----------------------------------------------------------------------
+
+        Statement::DoLoop { pre_cond } => {
+            let enter = match pre_cond {
+                None => true,
+                Some(DoCondition::While(cond)) => state.eval_num(cond).to_i64() != 0,
+                Some(DoCondition::Until(cond)) => state.eval_num(cond).to_i64() == 0,
+            };
+            if enter {
+                do_stack.push(pc);
+                pc + 1
+            } else {
+                find_matching_loop(lines, pc) + 1
+            }
+        }
+
+        Statement::Loop { post_cond } => {
+            let do_pc = do_stack.pop()
+                .unwrap_or_else(|| panic!("LOOP sans DO correspondant"));
+            let loop_again = match post_cond {
+                // LOOP seul : re-évaluer la condition du DO
+                None => match &lines[do_pc].statement {
+                    Statement::DoLoop { pre_cond: None } => true, // DO sans cond = boucle infinie
+                    Statement::DoLoop { pre_cond: Some(DoCondition::While(cond)) } => {
+                        state.eval_num(cond).to_i64() != 0
+                    }
+                    Statement::DoLoop { pre_cond: Some(DoCondition::Until(cond)) } => {
+                        state.eval_num(cond).to_i64() == 0
+                    }
+                    _ => panic!("LOOP : le PC do_stack ne pointe pas sur DO"),
+                },
+                // LOOP WHILE cond
+                Some(DoCondition::While(cond)) => state.eval_num(cond).to_i64() != 0,
+                // LOOP UNTIL cond
+                Some(DoCondition::Until(cond)) => state.eval_num(cond).to_i64() == 0,
+            };
+            if loop_again {
+                do_stack.push(do_pc);
+                do_pc + 1  // re-entre dans le corps (saute le DO)
+            } else {
+                pc + 1
+            }
+        }
+
+        // -----------------------------------------------------------------------
+        // DECLARE SUB — déclaration anticipée, no-op à l'exécution
+        // -----------------------------------------------------------------------
+
+        Statement::DeclareSub { .. } => pc + 1,
     }
 }
 
@@ -784,6 +925,8 @@ pub fn run_with_output(program: &Program, output: &mut dyn Write) {
     let mut while_stack: Vec<usize>     = Vec::new();
     let mut call_stack:  Vec<usize>     = Vec::new();
     let mut proc_stack:  Vec<ProcFrame> = Vec::new();
+    let mut if_stack:    Vec<bool>      = Vec::new();
+    let mut do_stack:    Vec<usize>     = Vec::new();
     let lines = &program.lines;
 
     let mut sub_table: HashMap<String, (usize, Vec<String>)> = HashMap::new();
@@ -804,6 +947,8 @@ pub fn run_with_output(program: &Program, output: &mut dyn Write) {
             &mut while_stack,
             &mut call_stack,
             &mut proc_stack,
+            &mut if_stack,
+            &mut do_stack,
             &sub_table,
             output,
         );
