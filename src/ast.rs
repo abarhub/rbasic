@@ -1,17 +1,14 @@
 #[derive(Debug, Clone)]
 pub enum UnaryOp {
-    Neg, // - (négation)
-    Pos, // + (no-op)
-    Not, // NOT (complément bit à bit, convention QBasic : NOT x = -(x+1))
+    Neg,
+    Pos,
+    Not,
 }
 
 #[derive(Debug, Clone)]
 pub enum Op {
-    // Arithmétique
     Add, Sub, Mul, Div, Mod,
-    // Comparaison (résultat : -1 vrai, 0 faux)
     Eq, Ne, Lt, Gt, Le, Ge,
-    // Logique / bit à bit
     And, Or, Xor,
 }
 
@@ -44,9 +41,14 @@ pub enum Statement {
     // --- Affectation / déclaration ---
     Let   { var: String, value: Expr },
     Dim   { var: String, dims: Vec<usize> },
+    /// DIM avec plusieurs tableaux sur une ligne — expansé en Dim individuels dans line()
+    DimMulti { items: Vec<(String, Vec<usize>)> },
     ArraySet { name: String, indices: Vec<Expr>, value: Expr },
     // --- Affichage ---
-    Print { values: Vec<Expr> },
+    /// separators[i] = true → ';' entre values[i] et values[i+1] (pas d'espace)
+    ///                false → ',' entre values[i] et values[i+1] (espace)
+    /// no_newline = true si ';' ou ',' en fin de PRINT (pas de saut de ligne)
+    Print { values: Vec<Expr>, separators: Vec<bool>, no_newline: bool },
     // --- Commentaire ---
     Rem,
     // --- Sauts ---
@@ -64,6 +66,8 @@ pub enum Statement {
     // --- FOR/NEXT ---
     For  { var: String, from: Expr, to: Expr, step: Option<Expr> },
     Next { var: Option<String> },
+    /// NEXT K, J, I — expansé en Next individuels dans line()
+    NextMulti { vars: Vec<String> },
     // --- WHILE/WEND ---
     While { cond: Expr },
     Wend,
@@ -81,18 +85,19 @@ pub enum Statement {
     // --- Console ---
     /// SCREEN mode  — no-op (mode texte uniquement)
     Screen { mode: Expr },
-    /// WIDTH cols   — no-op (la largeur est gérée par le terminal)
+    /// WIDTH cols   — no-op
     Width  { cols: Expr },
-    /// COLOR fg [, bg]  — couleur texte / fond (0-15, QBasic)
+    /// COLOR fg [, bg]
     Color  { fg: Expr, bg: Option<Expr> },
-    /// LOCATE row, col  — positionne le curseur (1-based)
+    /// LOCATE row, col
     Locate { row: Expr, col: Expr },
-    /// CLS  — efface l'écran
+    /// CLS
     Cls,
-    /// BEEP — émet un son (BEL)
+    /// BEEP
     Beep,
+    /// KEY ON/OFF/... — no-op
+    Key,
     // --- Fin de programme ---
-    /// END — termine l'exécution du programme
     End,
 }
 

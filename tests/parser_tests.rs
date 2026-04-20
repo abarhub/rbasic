@@ -138,7 +138,7 @@ fn test_array_access_in_expr() {
 #[test]
 fn test_print_string() {
     let s = stmt(r#"PRINT "bonjour""#);
-    if let Statement::Print { values } = s {
+    if let Statement::Print { values, .. } = s {
         assert_eq!(values.len(), 1);
         assert!(matches!(&values[0], Expr::StringLit(v) if v == "bonjour"));
     }
@@ -147,7 +147,7 @@ fn test_print_string() {
 #[test]
 fn test_print_integer() {
     let s = stmt("PRINT 99");
-    if let Statement::Print { values } = s {
+    if let Statement::Print { values, .. } = s {
         assert!(matches!(values[0], Expr::Integer(99)));
     }
 }
@@ -155,7 +155,7 @@ fn test_print_integer() {
 #[test]
 fn test_print_variable() {
     let s = stmt("PRINT X");
-    if let Statement::Print { values } = s {
+    if let Statement::Print { values, .. } = s {
         assert!(matches!(&values[0], Expr::Variable(v) if v == "X"));
     }
 }
@@ -163,7 +163,7 @@ fn test_print_variable() {
 #[test]
 fn test_print_string_variable() {
     let s = stmt("PRINT A$");
-    if let Statement::Print { values } = s {
+    if let Statement::Print { values, .. } = s {
         assert!(matches!(&values[0], Expr::Variable(v) if v == "A$"));
     }
 }
@@ -171,7 +171,7 @@ fn test_print_string_variable() {
 #[test]
 fn test_print_multiple_params() {
     let s = stmt(r#"PRINT "val", 1, X"#);
-    if let Statement::Print { values } = s {
+    if let Statement::Print { values, .. } = s {
         assert_eq!(values.len(), 3);
         assert!(matches!(&values[0], Expr::StringLit(v) if v == "val"));
         assert!(matches!(values[1], Expr::Integer(1)));
@@ -182,7 +182,7 @@ fn test_print_multiple_params() {
 #[test]
 fn test_print_empty() {
     let s = stmt("PRINT");
-    assert!(matches!(s, Statement::Print { values } if values.is_empty()));
+    assert!(matches!(s, Statement::Print { values, .. } if values.is_empty()));
 }
 
 // --- Programme complet ---
@@ -210,7 +210,7 @@ fn test_program_mixed_numbered_unnumbered() {
 
 fn binop(s: &str) -> (Op, Box<Expr>, Box<Expr>) {
     match stmt(s) {
-        Statement::Print { mut values } => {
+        Statement::Print { mut values, .. } => {
             match values.remove(0) {
                 Expr::BinOp { op, left, right } => (op, left, right),
                 _ => panic!("expected BinOp"),
@@ -340,7 +340,7 @@ fn test_affectation_avec_expression() {
 
 fn unary_expr(source: &str) -> (UnaryOp, Box<Expr>) {
     match stmt(source) {
-        Statement::Print { mut values } => match values.remove(0) {
+        Statement::Print { mut values, .. } => match values.remove(0) {
             Expr::UnaryOp { op, operand } => (op, operand),
             _ => panic!("expected UnaryOp"),
         },
@@ -445,7 +445,7 @@ fn test_precedence_or_avant_xor() {
 #[test]
 fn test_label_stmt() {
     let s = stmt("MonLabel:");
-    assert!(matches!(s, Statement::Label(ref n) if n == "MonLabel"));
+    assert!(matches!(s, Statement::Label(ref n) if n == "MONLABEL"));
 }
 
 // --- GOTO ---
@@ -459,7 +459,7 @@ fn test_goto_line_number() {
 #[test]
 fn test_goto_label() {
     let s = stmt("GOTO MonLabel");
-    assert!(matches!(s, Statement::Goto(rbasic::ast::JumpTarget::Label(ref n)) if n == "MonLabel"));
+    assert!(matches!(s, Statement::Goto(rbasic::ast::JumpTarget::Label(ref n)) if n == "MONLABEL"));
 }
 
 // --- IF ---
@@ -537,7 +537,7 @@ fn test_gosub_line_number() {
 #[test]
 fn test_gosub_label() {
     let s = stmt("GOSUB maRoutine");
-    assert!(matches!(s, Statement::Gosub(rbasic::ast::JumpTarget::Label(ref n)) if n == "maRoutine"));
+    assert!(matches!(s, Statement::Gosub(rbasic::ast::JumpTarget::Label(ref n)) if n == "MAROUTINE"));
 }
 
 #[test]
@@ -551,14 +551,14 @@ fn test_return_stmt() {
 #[test]
 fn test_sub_sans_params() {
     let s = stmt("SUB MaSub");
-    assert!(matches!(s, Statement::SubDef { ref name, ref params } if name == "MaSub" && params.is_empty()));
+    assert!(matches!(s, Statement::SubDef { ref name, ref params } if name == "MASUB" && params.is_empty()));
 }
 
 #[test]
 fn test_sub_avec_params() {
     let s = stmt("SUB MaSub(A, B$)");
     if let Statement::SubDef { name, params } = s {
-        assert_eq!(name, "MaSub");
+        assert_eq!(name, "MASUB");
         assert_eq!(params, vec!["A", "B$"]);
     } else { panic!("Expected SubDef"); }
 }
@@ -572,14 +572,14 @@ fn test_end_sub() {
 #[test]
 fn test_call_sans_args() {
     let s = stmt("CALL MaSub");
-    assert!(matches!(s, Statement::Call { ref name, ref args } if name == "MaSub" && args.is_empty()));
+    assert!(matches!(s, Statement::Call { ref name, ref args } if name == "MASUB" && args.is_empty()));
 }
 
 #[test]
 fn test_call_avec_args() {
     let s = stmt("CALL MaSub(1, 2)");
     if let Statement::Call { name, args } = s {
-        assert_eq!(name, "MaSub");
+        assert_eq!(name, "MASUB");
         assert_eq!(args.len(), 2);
     } else { panic!("Expected Call"); }
 }
@@ -648,7 +648,7 @@ fn test_float_in_for() {
 #[test]
 fn test_float_print() {
     let s = stmt("PRINT 3.14");
-    if let Statement::Print { mut values } = s {
+    if let Statement::Print { mut values, .. } = s {
         if let Expr::Float(f) = values.remove(0) {
             assert!((f - 3.14).abs() < 1e-10);
         } else {
@@ -770,14 +770,14 @@ fn test_loop_until_stmt() {
 #[test]
 fn test_declare_sub_no_params() {
     let s = stmt("DECLARE SUB Salut()");
-    assert!(matches!(s, Statement::DeclareSub { ref name, ref params } if name == "Salut" && params.is_empty()));
+    assert!(matches!(s, Statement::DeclareSub { ref name, ref params } if name == "SALUT" && params.is_empty()));
 }
 
 #[test]
 fn test_declare_sub_with_params() {
     let s = stmt("DECLARE SUB Double(N, M)");
     if let Statement::DeclareSub { name, params } = s {
-        assert_eq!(name, "Double");
+        assert_eq!(name, "DOUBLE");
         assert_eq!(params, vec!["N", "M"]);
     } else {
         panic!("Expected DeclareSub");
