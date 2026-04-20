@@ -1,6 +1,42 @@
 use chumsky::prelude::*;
 use crate::ast::*;
 
+// ---------------------------------------------------------------------------
+// Prétraitement : normalisation de la casse et suppression des directives $
+// ---------------------------------------------------------------------------
+
+/// Met en majuscules tout le texte source sauf le contenu des littéraux chaîne.
+fn normalize_case(src: &str) -> String {
+    let mut result = String::with_capacity(src.len());
+    let mut in_string = false;
+    for c in src.chars() {
+        if in_string {
+            result.push(c);
+            if c == '"' {
+                in_string = false;
+            }
+        } else if c == '"' {
+            in_string = true;
+            result.push(c);
+        } else {
+            result.push(c.to_ascii_uppercase());
+        }
+    }
+    result
+}
+
+/// Supprime les lignes commençant par '$' (directives de préprocesseur QBasic).
+fn preprocess(src: &str) -> String {
+    src.lines()
+        .filter(|line| !line.trim_start().starts_with('$'))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+// ---------------------------------------------------------------------------
+// Parseurs de base
+// ---------------------------------------------------------------------------
+
 fn hspace() -> impl Parser<char, (), Error = Simple<char>> {
     filter(|c: &char| *c == ' ' || *c == '\t').repeated().ignored()
 }
@@ -9,8 +45,6 @@ fn integer() -> impl Parser<char, i64, Error = Simple<char>> {
     text::int(10).map(|s: String| s.parse::<i64>().unwrap())
 }
 
-// Parses an integer or a float literal.
-// "3.14" → Expr::Float(3.14), "42" → Expr::Integer(42)
 fn number() -> impl Parser<char, Expr, Error = Simple<char>> {
     text::int(10)
         .then(
@@ -39,27 +73,31 @@ fn string_lit() -> impl Parser<char, String, Error = Simple<char>> {
         .map(|chars| chars.into_iter().collect())
 }
 
+/// Nom de variable : identifiant optionnellement suivi de '$'.
+/// Les suffixes de type QBasic '!', '#', '%' sont acceptés et supprimés
+/// (ils indiquent le type mais sont ignorés par l'interpréteur).
 fn var_name() -> impl Parser<char, String, Error = Simple<char>> {
     text::ident()
-        .then(just('$').or_not())
-        .map(|(name, dollar): (String, Option<char>)| {
-            if dollar.is_some() { format!("{}$", name) } else { name }
+        .then(
+            just('$').to(true)
+                .or(just('!').to(false))
+                .or(just('#').to(false))
+                .or(just('%').to(false))
+                .or_not()
+        )
+        .map(|(name, opt): (String, Option<bool>)| match opt {
+            Some(true)  => format!("{}$", name),
+            Some(false) => name,   // suffixe de type supprimé
+            None        => name,
         })
 }
 
-// Hiérarchie de précédence (du plus fort au plus faible) :
-//   atom       : littéral, variable, ( expr )
-//   unaire     : -atom  +atom  (récursif : --3 = -(-3))
-//   mul        : * / MOD
-//   add        : + -
-//   cmp        : = <> < > <= >=   (au plus une comparaison)
-//   NOT        : NOT cmp
-//   AND        : AND (bit à bit)
-//   OR         : OR  (bit à bit)
-//   XOR        : XOR (bit à bit)
+// ---------------------------------------------------------------------------
+// Expressions
+// ---------------------------------------------------------------------------
+
 fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
     recursive(|expr_rec| {
-        // --- atom ---
         let atom = string_lit().map(Expr::StringLit)
             .or(number())
             .or(var_name()
@@ -89,7 +127,6 @@ fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
                 .then_ignore(just(')')))
             .boxed();
 
-        // --- unaire (récursif : permet --3, -+5, etc.) ---
         let unary = recursive(|unary_rec| {
             just('-').ignore_then(hspace()).ignore_then(unary_rec.clone())
                 .map(|e| Expr::UnaryOp { op: UnaryOp::Neg, operand: Box::new(e) })
@@ -98,7 +135,6 @@ fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
             .or(atom)
         }).boxed();
 
-        // --- mul : * / MOD ---
         let mul_op = just('*').to(Op::Mul)
             .or(just('/').to(Op::Div))
             .or(text::keyword("MOD").to(Op::Mod));
@@ -108,7 +144,6 @@ fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
             .foldl(|l, (op, r)| Expr::BinOp { op, left: Box::new(l), right: Box::new(r) })
             .boxed();
 
-        // --- add : + - ---
         let add_op = just('+').to(Op::Add).or(just('-').to(Op::Sub));
 
         let add = mul.clone()
@@ -116,7 +151,6 @@ fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
             .foldl(|l, (op, r)| Expr::BinOp { op, left: Box::new(l), right: Box::new(r) })
             .boxed();
 
-        // --- cmp : = <> < > <= >= (au plus une comparaison) ---
         let cmp_op = just('<').then(just('>')).to(Op::Ne)
             .or(just('<').then(just('=')).to(Op::Le))
             .or(just('>').then(just('=')).to(Op::Ge))
@@ -132,7 +166,6 @@ fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
             })
             .boxed();
 
-        // --- NOT (niveau entre cmp et AND) ---
         let not_level = text::keyword("NOT")
             .ignore_then(hspace())
             .ignore_then(cmp.clone())
@@ -140,7 +173,6 @@ fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
             .or(cmp)
             .boxed();
 
-        // --- AND ---
         let and_level = not_level.clone()
             .then(
                 hspace().ignore_then(text::keyword("AND").to(Op::And))
@@ -149,7 +181,6 @@ fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
             .foldl(|l, (op, r)| Expr::BinOp { op, left: Box::new(l), right: Box::new(r) })
             .boxed();
 
-        // --- OR ---
         let or_level = and_level.clone()
             .then(
                 hspace().ignore_then(text::keyword("OR").to(Op::Or))
@@ -158,7 +189,6 @@ fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
             .foldl(|l, (op, r)| Expr::BinOp { op, left: Box::new(l), right: Box::new(r) })
             .boxed();
 
-        // --- XOR (niveau le plus bas) ---
         or_level.clone()
             .then(
                 hspace().ignore_then(text::keyword("XOR").to(Op::Xor))
@@ -167,6 +197,10 @@ fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
             .foldl(|l, (op, r)| Expr::BinOp { op, left: Box::new(l), right: Box::new(r) })
     })
 }
+
+// ---------------------------------------------------------------------------
+// Instructions
+// ---------------------------------------------------------------------------
 
 fn assign_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
     let with_let = text::keyword("LET")
@@ -188,10 +222,9 @@ fn assign_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
     with_let.or(without_let)
 }
 
-fn dim_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
-    text::keyword("DIM")
-        .ignore_then(hspace())
-        .ignore_then(var_name())
+/// Parseur d'une seule déclaration de tableau : NOM$(dim1[, dim2, ...])
+fn dim_one() -> impl Parser<char, (String, Vec<usize>), Error = Simple<char>> {
+    var_name()
         .then_ignore(hspace())
         .then_ignore(just('('))
         .then_ignore(hspace())
@@ -204,7 +237,26 @@ fn dim_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
         )
         .then_ignore(hspace())
         .then_ignore(just(')'))
-        .map(|(var, dims)| Statement::Dim { var, dims })
+}
+
+/// DIM supporte plusieurs tableaux sur une ligne : DIM A$(3), B(10, 5)
+fn dim_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("DIM")
+        .ignore_then(hspace())
+        .ignore_then(
+            dim_one()
+                .then_ignore(hspace())
+                .separated_by(just(',').then_ignore(hspace()))
+                .at_least(1)
+        )
+        .map(|items| {
+            if items.len() == 1 {
+                let (var, dims) = items.into_iter().next().unwrap();
+                Statement::Dim { var, dims }
+            } else {
+                Statement::DimMulti { items }
+            }
+        })
 }
 
 fn array_set_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
@@ -227,15 +279,38 @@ fn array_set_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
         .map(|((name, indices), value)| Statement::ArraySet { name, indices, value })
 }
 
+/// PRINT supporte ';' et ',' comme séparateurs, et un ';' final supprime le saut de ligne.
 fn print_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
-    let values = expr()
-        .then_ignore(hspace())
-        .separated_by(just(',').then_ignore(hspace()));
+    let sep = just(';').to(true).or(just(',').to(false));
 
     text::keyword("PRINT")
         .ignore_then(hspace())
-        .ignore_then(values)
-        .map(|values| Statement::Print { values })
+        .ignore_then(
+            expr()
+                .then_ignore(hspace())
+                .then(
+                    sep.then_ignore(hspace())
+                        .then(expr())
+                        .then_ignore(hspace())
+                        .repeated()
+                )
+                .then(sep.or_not())
+                .map(|((first, rest), trailing)| {
+                    let mut values = vec![first];
+                    let mut separators = Vec::new();
+                    for (s, v) in rest {
+                        separators.push(s);
+                        values.push(v);
+                    }
+                    let no_newline = trailing.is_some();
+                    Statement::Print { values, separators, no_newline }
+                })
+                .or_not()
+        )
+        .map(|opt| match opt {
+            Some(s) => s,
+            None    => Statement::Print { values: vec![], separators: vec![], no_newline: false },
+        })
 }
 
 fn rem_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
@@ -268,13 +343,21 @@ fn return_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
     text::keyword("RETURN").to(Statement::Return)
 }
 
-// Paramètres partagés entre SUB, DECLARE SUB
+/// Paramètres partagés entre SUB et DECLARE SUB.
+/// Accepte optionnellement "AS typename" après chaque paramètre (suffixe de type QBasic).
 fn param_list() -> impl Parser<char, Vec<String>, Error = Simple<char>> {
     hspace()
         .ignore_then(just('('))
         .ignore_then(hspace())
         .ignore_then(
             var_name()
+                .then_ignore(hspace())
+                .then_ignore(
+                    text::keyword("AS")
+                        .ignore_then(hspace())
+                        .ignore_then(text::ident())
+                        .or_not()
+                )
                 .then_ignore(hspace())
                 .separated_by(just(',').then_ignore(hspace()))
         )
@@ -372,12 +455,27 @@ fn for_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
         .map(|(((var, from), to), step)| Statement::For { var, from, to, step })
 }
 
+/// NEXT supporte plusieurs variables : NEXT K, J, I
+/// → NextMulti { vars: ["K", "J", "I"] } si >1 var, Next { var } sinon.
 fn next_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
     text::keyword("NEXT")
         .ignore_then(
-            hspace().ignore_then(var_name()).or_not()
+            hspace()
+                .ignore_then(
+                    var_name()
+                        .then_ignore(hspace())
+                        .separated_by(just(',').then_ignore(hspace()))
+                        .at_least(1)
+                )
+                .or_not()
         )
-        .map(|var| Statement::Next { var })
+        .map(|vars_opt| match vars_opt {
+            None => Statement::Next { var: None },
+            Some(vars) if vars.len() == 1 => {
+                Statement::Next { var: Some(vars.into_iter().next().unwrap()) }
+            }
+            Some(vars) => Statement::NextMulti { vars },
+        })
 }
 
 fn while_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
@@ -390,10 +488,6 @@ fn while_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
 fn wend_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
     text::keyword("WEND").to(Statement::Wend)
 }
-
-// ---------------------------------------------------------------------------
-// DO / LOOP
-// ---------------------------------------------------------------------------
 
 fn do_condition() -> impl Parser<char, DoCondition, Error = Simple<char>> {
     text::keyword("WHILE")
@@ -429,7 +523,7 @@ fn loop_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
 }
 
 // ---------------------------------------------------------------------------
-// Console : SCREEN, WIDTH, COLOR, LOCATE, CLS, BEEP
+// Console : SCREEN, WIDTH, COLOR, LOCATE, CLS, BEEP, KEY
 // ---------------------------------------------------------------------------
 
 fn screen_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
@@ -479,6 +573,16 @@ fn beep_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
     text::keyword("BEEP").to(Statement::Beep)
 }
 
+/// KEY ON/OFF/... — no-op ; consomme le reste de l'instruction jusqu'au prochain ':'  ou fin de ligne.
+fn key_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("KEY")
+        .ignore_then(
+            filter(|c: &char| *c != '\n' && *c != '\r' && *c != ':')
+                .repeated()
+        )
+        .to(Statement::Key)
+}
+
 // ---------------------------------------------------------------------------
 // IF multiligne
 // ---------------------------------------------------------------------------
@@ -513,7 +617,6 @@ fn end_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
 
 fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
     recursive(|stmt_rec| {
-        // --- IF sur une seule ligne ---
         let if_singleline = text::keyword("IF")
             .ignore_then(hspace())
             .ignore_then(expr())
@@ -534,7 +637,6 @@ fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
                 else_stmt: else_stmt.map(Box::new),
             });
 
-        // --- IF multiligne : IF cond THEN  (rien après THEN sur la ligne) ---
         let if_multiline = text::keyword("IF")
             .ignore_then(hspace())
             .ignore_then(expr())
@@ -543,11 +645,11 @@ fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
             .map(|cond| Statement::IfThen { cond });
 
         rem_stmt()
-            // END … : END IF > END SUB > END seul (ordre obligatoire)
+            // END … : ordre obligatoire END IF > END SUB > END seul
             .or(end_if_stmt())
             .or(end_sub_stmt())
             .or(end_stmt())
-            // DECLARE avant SUB (contient SUB comme second mot-clé)
+            // DECLARE avant SUB
             .or(declare_sub_stmt())
             .or(sub_stmt())
             .or(call_stmt())
@@ -557,7 +659,6 @@ fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
             .or(next_stmt())
             .or(while_stmt())
             .or(wend_stmt())
-            // DO/LOOP
             .or(do_loop_stmt())
             .or(loop_stmt())
             .or(gosub_stmt())
@@ -572,10 +673,10 @@ fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
             .or(locate_stmt())
             .or(cls_stmt())
             .or(beep_stmt())
-            // ELSEIF avant ELSE (ELSEIF contient ELSE comme préfixe)
+            .or(key_stmt())
+            // ELSEIF avant ELSE
             .or(elseif_stmt())
             .or(else_stmt())
-            // IF sur une ligne en premier, multiligne en fallback
             .or(if_singleline)
             .or(if_multiline)
             .or(array_set_stmt())
@@ -584,11 +685,10 @@ fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
     })
 }
 
-/// Une ligne source peut contenir plusieurs instructions séparées par `:`.
-/// Chaque instruction devient un `Line` indépendant ; seule la première
-/// conserve le numéro de ligne optionnel.
-/// Note : les labels (`fin:`) doivent être seuls sur leur ligne car le
-/// parser de label consomme le `:` lui-même.
+// ---------------------------------------------------------------------------
+// Parseur de ligne : gère l'expansion de NextMulti et DimMulti
+// ---------------------------------------------------------------------------
+
 fn line() -> impl Parser<char, Vec<Line>, Error = Simple<char>> {
     let line_number = text::int(10)
         .map(|s: String| s.parse::<u64>().unwrap())
@@ -605,14 +705,44 @@ fn line() -> impl Parser<char, Vec<Line>, Error = Simple<char>> {
                 .at_least(1)
         )
         .map(|(number, stmts)| {
-            stmts.into_iter().enumerate().map(|(i, statement)| Line {
-                number: if i == 0 { number } else { None },
-                statement,
-            }).collect::<Vec<_>>()
+            let mut lines: Vec<Line> = Vec::new();
+            let mut num: Option<u64> = number;
+
+            for stmt in stmts {
+                // Expansion des instructions multi-variants
+                let expanded: Vec<Statement> = match stmt {
+                    Statement::NextMulti { vars } => {
+                        vars.into_iter()
+                            .map(|v| Statement::Next { var: Some(v) })
+                            .collect()
+                    }
+                    Statement::DimMulti { items } => {
+                        items.into_iter()
+                            .map(|(var, dims)| Statement::Dim { var, dims })
+                            .collect()
+                    }
+                    other => vec![other],
+                };
+
+                for s in expanded {
+                    lines.push(Line {
+                        number: num.take(), // premier → numéro, reste → None
+                        statement: s,
+                    });
+                }
+            }
+            lines
         })
 }
 
+// ---------------------------------------------------------------------------
+// Point d'entrée public
+// ---------------------------------------------------------------------------
+
 pub fn parse(source: &str) -> Result<Program, Vec<Simple<char>>> {
+    let preprocessed = preprocess(source);
+    let normalized   = normalize_case(&preprocessed);
+
     line()
         .separated_by(
             filter(|c: &char| *c == '\r' || *c == '\n').repeated().at_least(1)
@@ -622,5 +752,5 @@ pub fn parse(source: &str) -> Result<Program, Vec<Simple<char>>> {
         .map(|lines_vec| Program {
             lines: lines_vec.into_iter().flatten().collect(),
         })
-        .parse(source)
+        .parse(normalized.as_str())
 }

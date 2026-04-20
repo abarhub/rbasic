@@ -13,7 +13,7 @@ use crossterm::{
 };
 
 // ---------------------------------------------------------------------------
-// Value : valeur numérique unifiée (entier ou flottant)
+// Value
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
@@ -55,11 +55,11 @@ fn format_float(f: f64) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Tableaux génériques
+// Tableaux génériques (déclarés via DIM)
 // ---------------------------------------------------------------------------
 
 struct ArrayData<T> {
-    dims: Vec<usize>, // taille par dimension (max_index + 1)
+    dims: Vec<usize>,
     data: Vec<T>,
 }
 
@@ -94,10 +94,12 @@ struct State {
     str_dims:        HashMap<String, usize>,
     num_arrays:      HashMap<String, ArrayData<Value>>,
     str_arrays:      HashMap<String, ArrayData<String>>,
+    /// Tableaux numériques auto-créés (sans DIM explicite) — stockage sparse.
+    num_auto_arrays: HashMap<String, HashMap<Vec<usize>, Value>>,
+    /// Tableaux chaînes auto-créés (sans DIM explicite) — stockage sparse.
+    str_auto_arrays: HashMap<String, HashMap<Vec<usize>, String>>,
     rng_seed:        Cell<u64>,
-    /// true quand on tourne dans un vrai terminal (mode console activé)
     console_enabled: bool,
-    /// Dernière touche lue par INKEY$ (vide si aucune)
     last_inkey:      String,
 }
 
@@ -109,22 +111,21 @@ impl State {
             str_dims:        HashMap::new(),
             num_arrays:      HashMap::new(),
             str_arrays:      HashMap::new(),
+            num_auto_arrays: HashMap::new(),
+            str_auto_arrays: HashMap::new(),
             rng_seed:        Cell::new(0),
             console_enabled: false,
             last_inkey:      String::new(),
         }
     }
 
-    /// Générateur pseudo-aléatoire (LCG 64 bits) — retourne un flottant dans [0, 1).
     fn next_rnd(&self) -> f64 {
         let mut s = self.rng_seed.get();
         s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
         self.rng_seed.set(s);
-        // Extrait 53 bits pour un f64 dans [0, 1)
         (s >> 11) as f64 / (1u64 << 53) as f64
     }
 
-    /// Retourne le nombre de secondes depuis l'epoch Unix.
     fn timer() -> f64 {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -148,7 +149,7 @@ impl State {
     }
 
     // -----------------------------------------------------------------------
-    // Fonctions built-in numériques → Option<Value>
+    // Fonctions built-in numériques
     // -----------------------------------------------------------------------
 
     fn num_builtin(&self, name: &str, args: &[Expr]) -> Option<Value> {
@@ -236,10 +237,8 @@ impl State {
                 Some(Value::Float(f))
             }
             "RND" => {
-                // RND() ou RND(n) : génère le prochain nombre aléatoire dans [0, 1)
                 Some(Value::Float(self.next_rnd()))
             }
-            // POS(n) : colonne courante du curseur (1-based, QBasic ignore n)
             "POS" => {
                 Some(if self.console_enabled {
                     crossterm::cursor::position()
@@ -254,7 +253,7 @@ impl State {
     }
 
     // -----------------------------------------------------------------------
-    // Fonctions built-in chaînes → Option<String>
+    // Fonctions built-in chaînes
     // -----------------------------------------------------------------------
 
     fn str_builtin(&self, name: &str, args: &[Expr]) -> Option<String> {
@@ -322,7 +321,6 @@ impl State {
             "STRING$" => {
                 assert_eq!(args.len(), 2, "STRING$ attend 2 arguments");
                 let n = self.eval_num(&args[0]).to_i64().max(0) as usize;
-                // 2e arg : chaîne (on prend le 1er caractère) ou entier (code ASCII)
                 let ch = if Self::is_string_expr(&args[1]) {
                     self.eval_str(&args[1]).chars().next().unwrap_or('\0')
                 } else {
@@ -336,7 +334,7 @@ impl State {
     }
 
     // -----------------------------------------------------------------------
-    // eval_num : évalue une expression numérique → Value
+    // eval_num
     // -----------------------------------------------------------------------
 
     fn eval_num(&self, expr: &Expr) -> Value {
@@ -347,7 +345,6 @@ impl State {
                 match name.as_str() {
                     "RND"    => Value::Float(self.next_rnd()),
                     "TIMER"  => Value::Float(Self::timer()),
-                    // CSRLIN : ligne courante du curseur (1-based)
                     "CSRLIN" => {
                         if self.console_enabled {
                             crossterm::cursor::position()
@@ -365,10 +362,16 @@ impl State {
                     return result;
                 }
                 let idx: Vec<i64> = indices.iter().map(|e| self.eval_num(e).to_i64()).collect();
-                self.num_arrays.get(name)
-                    .unwrap_or_else(|| panic!("Tableau numérique ou fonction {} non déclaré(e)", name))
-                    .get(&idx)
-                    .clone()
+                // Tableau déclaré via DIM
+                if let Some(arr) = self.num_arrays.get(name) {
+                    return arr.get(&idx).clone();
+                }
+                // Tableau auto-créé : retourner la valeur stockée ou 0
+                let uidx: Vec<usize> = idx.iter().map(|&i| i.max(0) as usize).collect();
+                self.num_auto_arrays.get(name)
+                    .and_then(|m| m.get(&uidx))
+                    .cloned()
+                    .unwrap_or_default()
             }
             Expr::UnaryOp { op, operand } => match op {
                 UnaryOp::Neg => match self.eval_num(operand) {
@@ -380,8 +383,6 @@ impl State {
             },
             Expr::BinOp { op, left, right } => {
                 match op {
-                    // Arithmétique : promotion flottante si l'un des opérandes est flottant.
-                    // Exception : int / int = division entière (rétrocompatibilité).
                     Op::Add | Op::Sub | Op::Mul | Op::Mod => {
                         let l = self.eval_num(left);
                         let r = self.eval_num(right);
@@ -413,23 +414,17 @@ impl State {
                         if l.is_float() || r.is_float() {
                             Value::Float(l.to_f64() / r.to_f64())
                         } else {
-                            // Division entière : rétrocompatibilité (PRINT 10/3 → 3)
                             Value::Int(l.to_i64() / r.to_i64())
                         }
                     }
-                    // Comparaisons : résultat entier -1 (vrai) ou 0 (faux)
                     Op::Eq | Op::Ne | Op::Lt | Op::Gt | Op::Le | Op::Ge => {
-                        // Comparaison de chaînes si au moins un membre est une chaîne
                         if Self::is_string_expr(left) || Self::is_string_expr(right) {
                             let l = self.eval_str(left);
                             let r = self.eval_str(right);
                             let result = match op {
-                                Op::Eq => l == r,
-                                Op::Ne => l != r,
-                                Op::Lt => l <  r,
-                                Op::Gt => l >  r,
-                                Op::Le => l <= r,
-                                Op::Ge => l >= r,
+                                Op::Eq => l == r, Op::Ne => l != r,
+                                Op::Lt => l <  r, Op::Gt => l >  r,
+                                Op::Le => l <= r, Op::Ge => l >= r,
                                 _ => unreachable!(),
                             };
                             return Value::Int(if result { -1 } else { 0 });
@@ -455,7 +450,6 @@ impl State {
                         };
                         Value::Int(if result { -1 } else { 0 })
                     }
-                    // Opérateurs bit à bit : toujours entiers
                     Op::And => Value::Int(self.eval_num(left).to_i64() & self.eval_num(right).to_i64()),
                     Op::Or  => Value::Int(self.eval_num(left).to_i64() | self.eval_num(right).to_i64()),
                     Op::Xor => Value::Int(self.eval_num(left).to_i64() ^ self.eval_num(right).to_i64()),
@@ -473,7 +467,6 @@ impl State {
         match expr {
             Expr::StringLit(s) => s.clone(),
             Expr::Variable(name) if name.ends_with('$') => {
-                // INKEY$ : retourne la dernière touche lue (non-bloquant)
                 if name == "INKEY$" {
                     return self.last_inkey.clone();
                 }
@@ -484,10 +477,16 @@ impl State {
                     return result;
                 }
                 let idx: Vec<i64> = indices.iter().map(|e| self.eval_num(e).to_i64()).collect();
-                self.str_arrays.get(name)
-                    .unwrap_or_else(|| panic!("Tableau chaîne ou fonction {} non déclaré(e)", name))
-                    .get(&idx)
-                    .clone()
+                // Tableau déclaré via DIM
+                if let Some(arr) = self.str_arrays.get(name) {
+                    return arr.get(&idx).clone();
+                }
+                // Tableau auto-créé : retourner la valeur stockée ou chaîne vide
+                let uidx: Vec<usize> = idx.iter().map(|&i| i.max(0) as usize).collect();
+                self.str_auto_arrays.get(name)
+                    .and_then(|m| m.get(&uidx))
+                    .cloned()
+                    .unwrap_or_default()
             }
             Expr::BinOp { op: Op::Add, left, right } => {
                 self.eval_str(left) + &self.eval_str(right)
@@ -514,6 +513,32 @@ impl State {
                 Value::Int(n)   => n.to_string(),
                 Value::Float(f) => format_float(f),
             }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Écriture dans un tableau chaîne (DIM ou auto)
+    // -----------------------------------------------------------------------
+
+    fn array_str_set(&mut self, name: &str, idx: &[i64], value: String) {
+        if let Some(arr) = self.str_arrays.get_mut(name) {
+            arr.set(idx, value);
+        } else {
+            let uidx: Vec<usize> = idx.iter().map(|&i| i.max(0) as usize).collect();
+            self.str_auto_arrays.entry(name.to_string()).or_default().insert(uidx, value);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Écriture dans un tableau numérique (DIM ou auto)
+    // -----------------------------------------------------------------------
+
+    fn array_num_set(&mut self, name: &str, idx: &[i64], value: Value) {
+        if let Some(arr) = self.num_arrays.get_mut(name) {
+            arr.set(idx, value);
+        } else {
+            let uidx: Vec<usize> = idx.iter().map(|&i| i.max(0) as usize).collect();
+            self.num_auto_arrays.entry(name.to_string()).or_default().insert(uidx, value);
         }
     }
 }
@@ -607,7 +632,6 @@ fn find_matching_wend(lines: &[Line], while_pc: usize) -> usize {
     panic!("WEND sans WHILE correspondant");
 }
 
-/// Cherche le prochain ELSEIF / ELSE / END IF au même niveau d'imbrication.
 fn find_next_branch(lines: &[Line], from_pc: usize) -> usize {
     let mut depth = 0usize;
     for i in (from_pc + 1)..lines.len() {
@@ -623,7 +647,6 @@ fn find_next_branch(lines: &[Line], from_pc: usize) -> usize {
     panic!("END IF manquant (find_next_branch)");
 }
 
-/// Cherche le END IF correspondant à un IF THEN multiligne.
 fn find_end_if(lines: &[Line], from_pc: usize) -> usize {
     let mut depth = 0usize;
     for i in (from_pc + 1)..lines.len() {
@@ -637,7 +660,6 @@ fn find_end_if(lines: &[Line], from_pc: usize) -> usize {
     panic!("END IF manquant (find_end_if)");
 }
 
-/// Cherche le LOOP correspondant à un DO.
 fn find_matching_loop(lines: &[Line], do_pc: usize) -> usize {
     let mut depth = 0usize;
     for i in (do_pc + 1)..lines.len() {
@@ -655,7 +677,6 @@ fn find_matching_loop(lines: &[Line], do_pc: usize) -> usize {
 // Console helpers
 // ---------------------------------------------------------------------------
 
-/// Convertit un code couleur QBasic (0-15) en couleur crossterm.
 fn qbasic_color(n: u8) -> CtColor {
     match n & 0x0F {
         0  => CtColor::Black,
@@ -664,7 +685,7 @@ fn qbasic_color(n: u8) -> CtColor {
         3  => CtColor::DarkCyan,
         4  => CtColor::DarkRed,
         5  => CtColor::DarkMagenta,
-        6  => CtColor::DarkYellow,   // Brown dans QBasic
+        6  => CtColor::DarkYellow,
         7  => CtColor::Grey,
         8  => CtColor::DarkGrey,
         9  => CtColor::Blue,
@@ -678,30 +699,25 @@ fn qbasic_color(n: u8) -> CtColor {
     }
 }
 
-/// Lit une touche sans bloquer (nécessite le mode raw activé).
-/// Retourne "" si aucune touche n'est disponible.
-/// Les touches spéciales retournent chr(0) + code BIOS (convention QBasic).
 fn poll_inkey() -> String {
     if poll(Duration::ZERO).unwrap_or(false) {
         match read() {
             Ok(Event::Key(key_event)) => match key_event.code {
-                KeyCode::Char(c)  => c.to_string(),
-                KeyCode::Enter    => "\r".to_string(),
-                KeyCode::Esc      => "\x1b".to_string(),
+                KeyCode::Char(c)   => c.to_string(),
+                KeyCode::Enter     => "\r".to_string(),
+                KeyCode::Esc       => "\x1b".to_string(),
                 KeyCode::Backspace => "\x08".to_string(),
-                KeyCode::Tab      => "\t".to_string(),
-                // Touches de déplacement — codes BIOS PC
-                KeyCode::Up       => "\x00H".to_string(),
-                KeyCode::Down     => "\x00P".to_string(),
-                KeyCode::Left     => "\x00K".to_string(),
-                KeyCode::Right    => "\x00M".to_string(),
-                KeyCode::Home     => "\x00G".to_string(),
-                KeyCode::End      => "\x00O".to_string(),
-                KeyCode::PageUp   => "\x00I".to_string(),
-                KeyCode::PageDown => "\x00Q".to_string(),
-                KeyCode::Insert   => "\x00R".to_string(),
-                KeyCode::Delete   => "\x00S".to_string(),
-                // Touches de fonction F1-F10
+                KeyCode::Tab       => "\t".to_string(),
+                KeyCode::Up        => "\x00H".to_string(),
+                KeyCode::Down      => "\x00P".to_string(),
+                KeyCode::Left      => "\x00K".to_string(),
+                KeyCode::Right     => "\x00M".to_string(),
+                KeyCode::Home      => "\x00G".to_string(),
+                KeyCode::End       => "\x00O".to_string(),
+                KeyCode::PageUp    => "\x00I".to_string(),
+                KeyCode::PageDown  => "\x00Q".to_string(),
+                KeyCode::Insert    => "\x00R".to_string(),
+                KeyCode::Delete    => "\x00S".to_string(),
                 KeyCode::F(n) if n >= 1 && n <= 10 => {
                     format!("\x00{}", char::from(58 + n))
                 }
@@ -714,7 +730,6 @@ fn poll_inkey() -> String {
     }
 }
 
-/// Adaptateur Write qui remplace les \n isolés par \r\n (mode raw terminal).
 struct RawOutput<W: Write>(W);
 
 impl<W: Write> Write for RawOutput<W> {
@@ -722,17 +737,10 @@ impl<W: Write> Write for RawOutput<W> {
         let mut pos = 0;
         while pos < buf.len() {
             match buf[pos..].iter().position(|&b| b == b'\n') {
-                None => {
-                    self.0.write_all(&buf[pos..])?;
-                    break;
-                }
+                None => { self.0.write_all(&buf[pos..])?; break; }
                 Some(rel) => {
                     let abs = pos + rel;
-                    // Écrire le contenu avant \n
-                    if abs > pos {
-                        self.0.write_all(&buf[pos..abs])?;
-                    }
-                    // \r\n sauf si déjà précédé d'un \r
+                    if abs > pos { self.0.write_all(&buf[pos..abs])?; }
                     if abs == 0 || buf[abs - 1] != b'\r' {
                         self.0.write_all(b"\r\n")?;
                     } else {
@@ -760,14 +768,15 @@ fn exec_stmt(
     while_stack: &mut Vec<usize>,
     call_stack:  &mut Vec<usize>,
     proc_stack:  &mut Vec<ProcFrame>,
-    if_stack:    &mut Vec<bool>,   // true = une branche du IF courant a été exécutée
-    do_stack:    &mut Vec<usize>,  // PC du DO correspondant
+    if_stack:    &mut Vec<bool>,
+    do_stack:    &mut Vec<usize>,
     sub_table: &HashMap<String, (usize, Vec<String>)>,
     output: &mut dyn Write,
 ) -> usize {
     match stmt {
-        Statement::Rem => pc + 1,
+        Statement::Rem   => pc + 1,
         Statement::Label(_) => pc + 1,
+        Statement::Key   => pc + 1,
 
         Statement::Dim { var, dims } => {
             if var.ends_with('$') {
@@ -783,17 +792,49 @@ fn exec_stmt(
         }
 
         Statement::ArraySet { name, indices, value } => {
+            // MID$(target, start[, len]) = value — affectation partielle de chaîne
+            if name == "MID$" {
+                assert!(indices.len() >= 2, "MID$ assignment: 2 arguments minimum");
+                let s = state.eval_str(&indices[0]);
+                let start = (state.eval_num(&indices[1]).to_i64() - 1).max(0) as usize;
+                let replacement = state.eval_str(value);
+                let max_len = if indices.len() >= 3 {
+                    state.eval_num(&indices[2]).to_i64().max(0) as usize
+                } else {
+                    replacement.chars().count()
+                };
+                let mut chars: Vec<char> = s.chars().collect();
+                for (i, c) in replacement.chars().take(max_len).enumerate() {
+                    let pos = start + i;
+                    if pos < chars.len() { chars[pos] = c; }
+                }
+                let new_str: String = chars.into_iter().collect();
+                // Écriture vers la cible (variable scalaire ou élément de tableau)
+                match &indices[0] {
+                    Expr::Variable(vname) => {
+                        state.str_vars.insert(vname.clone(), new_str);
+                    }
+                    Expr::ArrayAccess { name: aname, indices: aidx } => {
+                        let idx: Vec<i64> = aidx.iter()
+                            .map(|e| state.eval_num(e).to_i64())
+                            .collect();
+                        let aname = aname.clone();
+                        state.array_str_set(&aname, &idx, new_str);
+                    }
+                    _ => panic!("MID$ assignment: la cible doit être une variable chaîne ou un élément de tableau"),
+                }
+                return pc + 1;
+            }
+
             let idx: Vec<i64> = indices.iter().map(|e| state.eval_num(e).to_i64()).collect();
             if name.ends_with('$') {
                 let s = state.eval_str(value);
-                state.str_arrays.get_mut(name)
-                    .unwrap_or_else(|| panic!("Tableau chaîne {} non déclaré", name))
-                    .set(&idx, s);
+                let name = name.clone();
+                state.array_str_set(&name, &idx, s);
             } else {
                 let v = state.eval_num(value);
-                state.num_arrays.get_mut(name)
-                    .unwrap_or_else(|| panic!("Tableau numérique {} non déclaré", name))
-                    .set(&idx, v);
+                let name = name.clone();
+                state.array_num_set(&name, &idx, v);
             }
             pc + 1
         }
@@ -803,11 +844,21 @@ fn exec_stmt(
             pc + 1
         }
 
-        Statement::Print { values } => {
-            let parts: Vec<String> = values.iter()
-                .map(|e| state.format_value(e))
-                .collect();
-            writeln!(output, "{}", parts.join(" ")).unwrap();
+        Statement::Print { values, separators, no_newline } => {
+            // separators[i] = true → ';' (pas d'espace), false → ',' (espace)
+            for (i, expr) in values.iter().enumerate() {
+                if i > 0 {
+                    if !separators[i - 1] {
+                        write!(output, " ").unwrap();
+                    }
+                }
+                write!(output, "{}", state.format_value(expr)).unwrap();
+            }
+            if !no_newline {
+                writeln!(output, "").unwrap();
+            } else {
+                output.flush().unwrap();
+            }
             pc + 1
         }
 
@@ -833,7 +884,6 @@ fn exec_stmt(
             let to_f   = to_val.to_f64();
             let step_f = step_val.to_f64();
 
-            // Initialiser la variable de boucle
             let init_val = if is_float { Value::Float(from_f) } else { Value::Int(from_f as i64) };
             state.num_vars.insert(var.clone(), init_val);
 
@@ -868,11 +918,7 @@ fn exec_stmt(
                 for_stack.pop();
                 pc + 1
             } else {
-                let new_val = if frame.is_float {
-                    Value::Float(new_f)
-                } else {
-                    Value::Int(new_f as i64)
-                };
+                let new_val = if frame.is_float { Value::Float(new_f) } else { Value::Int(new_f as i64) };
                 state.num_vars.insert(frame.var.clone(), new_val);
                 frame.body_start
             }
@@ -951,8 +997,7 @@ fn exec_stmt(
 
         Statement::Sleep { duration } => {
             let secs = state.eval_num(duration).to_f64().max(0.0);
-            let millis = (secs * 1000.0) as u64;
-            std::thread::sleep(std::time::Duration::from_millis(millis));
+            std::thread::sleep(std::time::Duration::from_millis((secs * 1000.0) as u64));
             pc + 1
         }
 
@@ -968,10 +1013,10 @@ fn exec_stmt(
 
         Statement::IfThen { cond } => {
             if state.eval_num(cond).to_i64() != 0 {
-                if_stack.push(true);   // une branche a été prise
+                if_stack.push(true);
                 pc + 1
             } else {
-                if_stack.push(false);  // aucune branche prise pour l'instant
+                if_stack.push(false);
                 find_next_branch(lines, pc)
             }
         }
@@ -980,7 +1025,6 @@ fn exec_stmt(
             let taken = *if_stack.last()
                 .unwrap_or_else(|| panic!("ELSEIF sans IF correspondant"));
             if taken {
-                // Une branche précédente a déjà été exécutée → sauter jusqu'à END IF
                 find_end_if(lines, pc)
             } else if state.eval_num(cond).to_i64() != 0 {
                 *if_stack.last_mut().unwrap() = true;
@@ -993,18 +1037,13 @@ fn exec_stmt(
         Statement::Else => {
             let taken = *if_stack.last()
                 .unwrap_or_else(|| panic!("ELSE sans IF correspondant"));
-            if taken {
-                find_end_if(lines, pc)
-            } else {
+            if taken { find_end_if(lines, pc) } else {
                 *if_stack.last_mut().unwrap() = true;
                 pc + 1
             }
         }
 
-        Statement::EndIf => {
-            if_stack.pop();
-            pc + 1
-        }
+        Statement::EndIf => { if_stack.pop(); pc + 1 }
 
         // -----------------------------------------------------------------------
         // DO / LOOP
@@ -1028,9 +1067,8 @@ fn exec_stmt(
             let do_pc = do_stack.pop()
                 .unwrap_or_else(|| panic!("LOOP sans DO correspondant"));
             let loop_again = match post_cond {
-                // LOOP seul : re-évaluer la condition du DO
                 None => match &lines[do_pc].statement {
-                    Statement::DoLoop { pre_cond: None } => true, // DO sans cond = boucle infinie
+                    Statement::DoLoop { pre_cond: None } => true,
                     Statement::DoLoop { pre_cond: Some(DoCondition::While(cond)) } => {
                         state.eval_num(cond).to_i64() != 0
                     }
@@ -1039,22 +1077,16 @@ fn exec_stmt(
                     }
                     _ => panic!("LOOP : le PC do_stack ne pointe pas sur DO"),
                 },
-                // LOOP WHILE cond
                 Some(DoCondition::While(cond)) => state.eval_num(cond).to_i64() != 0,
-                // LOOP UNTIL cond
                 Some(DoCondition::Until(cond)) => state.eval_num(cond).to_i64() == 0,
             };
             if loop_again {
                 do_stack.push(do_pc);
-                do_pc + 1  // re-entre dans le corps (saute le DO)
+                do_pc + 1
             } else {
                 pc + 1
             }
         }
-
-        // -----------------------------------------------------------------------
-        // DECLARE SUB — déclaration anticipée, no-op à l'exécution
-        // -----------------------------------------------------------------------
 
         Statement::DeclareSub { .. } => pc + 1,
 
@@ -1062,32 +1094,22 @@ fn exec_stmt(
         // Console
         // -----------------------------------------------------------------------
 
-        // SCREEN mode — no-op (mode texte uniquement supporté)
         Statement::Screen { .. } => pc + 1,
+        Statement::Width  { .. } => pc + 1,
 
-        // WIDTH cols — no-op
-        Statement::Width { .. } => pc + 1,
-
-        // CLS — efface l'écran et ramène le curseur en haut à gauche
         Statement::Cls => {
             if state.console_enabled {
-                let _ = execute!(
-                    io::stdout(),
-                    Clear(ClearType::All),
-                    MoveTo(0, 0),
-                );
+                let _ = execute!(io::stdout(), Clear(ClearType::All), MoveTo(0, 0));
             }
             pc + 1
         }
 
-        // BEEP — émet le caractère BEL (fonctionne même hors console)
         Statement::Beep => {
             write!(output, "\x07").unwrap();
             output.flush().unwrap();
             pc + 1
         }
 
-        // COLOR fg [, bg] — définit les couleurs du texte suivant
         Statement::Color { fg, bg } => {
             if state.console_enabled {
                 let fg_n = state.eval_num(fg).to_i64().clamp(0, 15) as u8;
@@ -1100,7 +1122,6 @@ fn exec_stmt(
             pc + 1
         }
 
-        // LOCATE row, col — positionne le curseur (QBasic : 1-based)
         Statement::Locate { row, col } => {
             if state.console_enabled {
                 let r = (state.eval_num(row).to_i64() as u16).saturating_sub(1);
@@ -1110,11 +1131,11 @@ fn exec_stmt(
             pc + 1
         }
 
-        // -----------------------------------------------------------------------
-        // END — termine immédiatement l'exécution du programme
-        // -----------------------------------------------------------------------
+        Statement::End => lines.len(),
 
-        Statement::End => lines.len(), // fait sortir la boucle while pc < lines.len()
+        // NextMulti et DimMulti sont expansés dans line() — jamais exécutés directement.
+        Statement::NextMulti { .. } => panic!("NextMulti non expansé"),
+        Statement::DimMulti  { .. } => panic!("DimMulti non expansé"),
     }
 }
 
@@ -1122,7 +1143,6 @@ fn exec_stmt(
 // Point d'entrée public
 // ---------------------------------------------------------------------------
 
-/// Logique d'exécution commune à run() et run_with_output().
 fn run_internal(program: &Program, output: &mut dyn Write, state: &mut State) {
     let mut for_stack:   Vec<ForFrame>  = Vec::new();
     let mut while_stack: Vec<usize>     = Vec::new();
@@ -1132,7 +1152,6 @@ fn run_internal(program: &Program, output: &mut dyn Write, state: &mut State) {
     let mut do_stack:    Vec<usize>     = Vec::new();
     let lines = &program.lines;
 
-    // Pré-scan des SUB pour la table de sous-programmes
     let mut sub_table: HashMap<String, (usize, Vec<String>)> = HashMap::new();
     for (i, line) in lines.iter().enumerate() {
         if let Statement::SubDef { name, params } = &line.statement {
@@ -1142,33 +1161,22 @@ fn run_internal(program: &Program, output: &mut dyn Write, state: &mut State) {
 
     let mut pc = 0usize;
     while pc < lines.len() {
-        // Mise à jour INKEY$ avant chaque instruction
         if state.console_enabled {
             state.last_inkey = poll_inkey();
         }
         pc = exec_stmt(
             &lines[pc].statement,
-            pc,
-            lines,
-            state,
-            &mut for_stack,
-            &mut while_stack,
-            &mut call_stack,
-            &mut proc_stack,
-            &mut if_stack,
-            &mut do_stack,
-            &sub_table,
-            output,
+            pc, lines, state,
+            &mut for_stack, &mut while_stack, &mut call_stack,
+            &mut proc_stack, &mut if_stack, &mut do_stack,
+            &sub_table, output,
         );
     }
 }
 
-/// Exécute le programme sur le terminal réel (mode raw, couleurs, curseur).
 pub fn run(program: &Program) {
     let mut state = State::new();
     state.console_enabled = true;
-
-    // Active le mode raw pour INKEY$ et les séquences de contrôle
     let raw_ok = enable_raw_mode().is_ok();
     {
         let mut out = RawOutput(io::stdout());
@@ -1177,15 +1185,11 @@ pub fn run(program: &Program) {
     }
     if raw_ok {
         let _ = disable_raw_mode();
-        // Réinitialise les couleurs après l'exécution
         let _ = execute!(io::stdout(), ResetColor);
     }
 }
 
-/// Exécute le programme en redirigeant la sortie vers `output` (tests, pipes).
-/// Les commandes console (COLOR, LOCATE, CLS …) sont des no-ops.
 pub fn run_with_output(program: &Program, output: &mut dyn Write) {
     let mut state = State::new();
-    // console_enabled reste false : toutes les opérations terminal sont ignorées
     run_internal(program, output, &mut state);
 }
