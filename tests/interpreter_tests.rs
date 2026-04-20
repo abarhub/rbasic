@@ -1254,3 +1254,116 @@ fn test_locate_color_print() {
     let src = "LOCATE 1, 1\nCOLOR 15\nPRINT \"test\"";
     assert_eq!(run_program(src), "test\n");
 }
+
+// --- Comparaison de chaînes ---
+
+#[test]
+fn test_str_cmp_egal_vrai() {
+    let src = "A$ = \"hello\"\nIF A$ = \"hello\" THEN PRINT \"ok\"";
+    assert_eq!(run_program(src), "ok\n");
+}
+
+#[test]
+fn test_str_cmp_egal_faux() {
+    let src = "A$ = \"hello\"\nIF A$ = \"world\" THEN PRINT \"non\" ELSE PRINT \"ok\"";
+    assert_eq!(run_program(src), "ok\n");
+}
+
+#[test]
+fn test_str_cmp_different() {
+    let src = "A$ = \"abc\"\nIF A$ <> \"def\" THEN PRINT \"ok\"";
+    assert_eq!(run_program(src), "ok\n");
+}
+
+#[test]
+fn test_str_cmp_inferieur() {
+    let src = "IF \"abc\" < \"abd\" THEN PRINT \"ok\"";
+    assert_eq!(run_program(src), "ok\n");
+}
+
+#[test]
+fn test_str_cmp_superieur() {
+    let src = "IF \"z\" > \"a\" THEN PRINT \"ok\"";
+    assert_eq!(run_program(src), "ok\n");
+}
+
+#[test]
+fn test_str_cmp_inferieur_egal() {
+    let src = "IF \"abc\" <= \"abc\" THEN PRINT \"ok\"";
+    assert_eq!(run_program(src), "ok\n");
+}
+
+#[test]
+fn test_str_cmp_superieur_egal() {
+    let src = "IF \"b\" >= \"a\" THEN PRINT \"ok\"";
+    assert_eq!(run_program(src), "ok\n");
+}
+
+#[test]
+fn test_str_cmp_vide() {
+    let src = "A$ = \"\"\nIF A$ = \"\" THEN PRINT \"vide\"";
+    assert_eq!(run_program(src), "vide\n");
+}
+
+#[test]
+fn test_str_cmp_dans_boucle() {
+    let src = "FOR I = 1 TO 3\n    S$ = STR$(I)\n    IF S$ = \"2\" THEN PRINT \"deux\"\nNEXT I";
+    assert_eq!(run_program(src), "deux\n");
+}
+
+// --- Instructions multiples sur une ligne (:) ---
+
+#[test]
+fn test_multistatement_deux_affectations() {
+    assert_eq!(run_program("A = 1 : B = 2 : PRINT A + B"), "3\n");
+}
+
+#[test]
+fn test_multistatement_deux_prints() {
+    assert_eq!(run_program("PRINT \"a\" : PRINT \"b\""), "a\nb\n");
+}
+
+#[test]
+fn test_multistatement_avec_numero_de_ligne() {
+    assert_eq!(run_program("10 A = 5 : PRINT A"), "5\n");
+}
+
+#[test]
+fn test_multistatement_if_then_suivi() {
+    // L'instruction après : est hors du IF (toujours exécutée)
+    let src = "X = 0\nIF X > 0 THEN PRINT \"si\" : PRINT \"toujours\"";
+    assert_eq!(run_program(src), "toujours\n");
+}
+
+#[test]
+fn test_multistatement_for_sur_une_ligne() {
+    // FOR, PRINT et NEXT sur la même ligne source
+    let src = "FOR I = 1 TO 3 : PRINT I : NEXT I";
+    assert_eq!(run_program(src), "1\n2\n3\n");
+}
+
+#[test]
+fn test_multistatement_trois_instructions() {
+    let src = "A = 10 : B = 20 : C = A + B : PRINT C";
+    assert_eq!(run_program(src), "30\n");
+}
+
+// --- END ---
+
+#[test]
+fn test_end_arrete_execution() {
+    let src = "PRINT \"avant\"\nEND\nPRINT \"apres\"";
+    assert_eq!(run_program(src), "avant\n");
+}
+
+#[test]
+fn test_end_dans_if() {
+    let src = "X = 5\nIF X > 3 THEN END\nPRINT \"non\"";
+    assert_eq!(run_program(src), "");
+}
+
+#[test]
+fn test_end_apres_boucle() {
+    let src = "FOR I = 1 TO 3\n    PRINT I\n    IF I = 2 THEN END\nNEXT I\nPRINT \"fin\"";
+    assert_eq!(run_program(src), "1\n2\n");
+}

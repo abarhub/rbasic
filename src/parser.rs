@@ -503,6 +503,10 @@ fn end_if_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
         .to(Statement::EndIf)
 }
 
+fn end_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("END").to(Statement::End)
+}
+
 // ---------------------------------------------------------------------------
 // statement()
 // ---------------------------------------------------------------------------
@@ -539,9 +543,10 @@ fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
             .map(|cond| Statement::IfThen { cond });
 
         rem_stmt()
-            // END … doit être tenté avant les mots-clés solo (END IF avant END SUB)
+            // END … : END IF > END SUB > END seul (ordre obligatoire)
             .or(end_if_stmt())
             .or(end_sub_stmt())
+            .or(end_stmt())
             // DECLARE avant SUB (contient SUB comme second mot-clé)
             .or(declare_sub_stmt())
             .or(sub_stmt())
@@ -579,7 +584,12 @@ fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
     })
 }
 
-fn line() -> impl Parser<char, Line, Error = Simple<char>> {
+/// Une ligne source peut contenir plusieurs instructions séparées par `:`.
+/// Chaque instruction devient un `Line` indépendant ; seule la première
+/// conserve le numéro de ligne optionnel.
+/// Note : les labels (`fin:`) doivent être seuls sur leur ligne car le
+/// parser de label consomme le `:` lui-même.
+fn line() -> impl Parser<char, Vec<Line>, Error = Simple<char>> {
     let line_number = text::int(10)
         .map(|s: String| s.parse::<u64>().unwrap())
         .then_ignore(hspace())
@@ -587,8 +597,19 @@ fn line() -> impl Parser<char, Line, Error = Simple<char>> {
 
     hspace()
         .ignore_then(line_number)
-        .then(statement())
-        .map(|(number, statement)| Line { number, statement })
+        .then(
+            statement()
+                .separated_by(
+                    hspace().ignore_then(just(':')).ignore_then(hspace())
+                )
+                .at_least(1)
+        )
+        .map(|(number, stmts)| {
+            stmts.into_iter().enumerate().map(|(i, statement)| Line {
+                number: if i == 0 { number } else { None },
+                statement,
+            }).collect::<Vec<_>>()
+        })
 }
 
 pub fn parse(source: &str) -> Result<Program, Vec<Simple<char>>> {
@@ -598,6 +619,8 @@ pub fn parse(source: &str) -> Result<Program, Vec<Simple<char>>> {
         )
         .allow_leading()
         .allow_trailing()
-        .map(|lines| Program { lines })
+        .map(|lines_vec| Program {
+            lines: lines_vec.into_iter().flatten().collect(),
+        })
         .parse(source)
 }
