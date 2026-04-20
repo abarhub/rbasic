@@ -324,6 +324,20 @@ fn label_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
         .map(Statement::Label)
 }
 
+fn sleep_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("SLEEP")
+        .ignore_then(hspace())
+        .ignore_then(expr())
+        .map(|duration| Statement::Sleep { duration })
+}
+
+fn randomize_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("RANDOMIZE")
+        .ignore_then(hspace())
+        .ignore_then(expr())
+        .map(|seed| Statement::Randomize { seed })
+}
+
 fn for_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
     let step = hspace()
         .ignore_then(text::keyword("STEP"))
@@ -399,6 +413,8 @@ fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
             .or(gosub_stmt())
             .or(return_stmt())
             .or(goto_stmt())
+            .or(sleep_stmt())
+            .or(randomize_stmt())
             .or(if_stmt)
             .or(array_set_stmt())
             .or(label_stmt())

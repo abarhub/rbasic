@@ -960,3 +960,93 @@ fn test_for_float_from_to() {
     let src = "FOR X = 0.0 TO 1.0 STEP 0.25\nPRINT X\nNEXT X";
     assert_eq!(run_program(src), "0\n0.25\n0.5\n0.75\n1\n");
 }
+
+// --- STRING$ ---
+
+#[test]
+fn test_string_dollar_chaine() {
+    assert_eq!(run_program(r#"PRINT STRING$(5, "A")"#), "AAAAA\n");
+}
+
+#[test]
+fn test_string_dollar_ascii() {
+    // 65 = 'A'
+    assert_eq!(run_program("PRINT STRING$(3, 65)"), "AAA\n");
+}
+
+#[test]
+fn test_string_dollar_zero() {
+    assert_eq!(run_program(r#"PRINT STRING$(0, "X")"#), "\n");
+}
+
+#[test]
+fn test_string_dollar_tiret() {
+    assert_eq!(run_program(r#"PRINT STRING$(4, "-")"#), "----\n");
+}
+
+#[test]
+fn test_string_dollar_premier_char() {
+    // On utilise le premier caractère de la chaîne
+    assert_eq!(run_program(r#"PRINT STRING$(3, "ABC")"#), "AAA\n");
+}
+
+// --- RND et RANDOMIZE ---
+
+#[test]
+fn test_rnd_positif() {
+    // RND est toujours >= 0
+    let src = "RANDOMIZE 1\nX = RND\nIF X >= 0 THEN PRINT \"ok\"";
+    assert_eq!(run_program(src), "ok\n");
+}
+
+#[test]
+fn test_rnd_inferieur_a_un() {
+    // RND est toujours < 1
+    let src = "RANDOMIZE 1\nX = RND\nIF X < 1 THEN PRINT \"ok\"";
+    assert_eq!(run_program(src), "ok\n");
+}
+
+#[test]
+fn test_rnd_deux_appels_differents() {
+    // Deux appels successifs produisent des valeurs différentes
+    let src = "RANDOMIZE 42\nA = RND\nB = RND\nIF A <> B THEN PRINT \"different\"";
+    assert_eq!(run_program(src), "different\n");
+}
+
+#[test]
+fn test_rnd_deterministe() {
+    // Avec la même graine, RND produit la même séquence
+    let src1 = "RANDOMIZE 7\nX = RND\nPRINT X";
+    let src2 = "RANDOMIZE 7\nX = RND\nPRINT X";
+    assert_eq!(run_program(src1), run_program(src2));
+}
+
+#[test]
+fn test_rnd_graines_differentes() {
+    // Deux graines différentes produisent des séquences différentes
+    let src1 = "RANDOMIZE 1\nPRINT RND";
+    let src2 = "RANDOMIZE 2\nPRINT RND";
+    assert_ne!(run_program(src1), run_program(src2));
+}
+
+// --- TIMER ---
+
+#[test]
+fn test_timer_positif() {
+    // TIMER retourne un nombre de secondes positif
+    let src = "IF TIMER > 0 THEN PRINT \"ok\"";
+    assert_eq!(run_program(src), "ok\n");
+}
+
+// --- SLEEP ---
+
+#[test]
+fn test_sleep_zero() {
+    // SLEEP 0 ne dort pas et continue normalement
+    assert_eq!(run_program("SLEEP 0\nPRINT \"ok\""), "ok\n");
+}
+
+#[test]
+fn test_sleep_puis_print() {
+    assert_eq!(run_program("SLEEP 0\nPRINT \"apres\""), "apres\n");
+}

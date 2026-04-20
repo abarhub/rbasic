@@ -51,6 +51,8 @@ pub enum Statement {
     SubDef { name: String, params: Vec<String> },
     EndSub,
     Call { name: String, args: Vec<Expr> },
+    Sleep { duration: Expr },
+    Randomize { seed: Expr },
 }
 
 #[derive(Debug, Clone)]
