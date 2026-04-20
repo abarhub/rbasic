@@ -806,3 +806,157 @@ fn test_str_dollar_dans_expression() {
 PRINT "Valeur : " + STR$(X)"#;
     assert_eq!(run_program(src), "Valeur : 42\n");
 }
+
+// --- Nombres flottants ---
+
+#[test]
+fn test_float_literal() {
+    assert_eq!(run_program("PRINT 3.14"), "3.14\n");
+}
+
+#[test]
+fn test_float_zero_frac() {
+    // Un flottant sans partie décimale doit s'afficher comme entier
+    assert_eq!(run_program("PRINT 4.0"), "4\n");
+}
+
+#[test]
+fn test_float_addition() {
+    assert_eq!(run_program("PRINT 1.5 + 2.5"), "4\n");
+}
+
+#[test]
+fn test_float_soustraction() {
+    assert_eq!(run_program("PRINT 5.0 - 1.25"), "3.75\n");
+}
+
+#[test]
+fn test_float_multiplication() {
+    assert_eq!(run_program("PRINT 2.5 * 4.0"), "10\n");
+}
+
+#[test]
+fn test_float_division() {
+    // flottant / flottant → division réelle
+    assert_eq!(run_program("PRINT 10.0 / 4.0"), "2.5\n");
+}
+
+#[test]
+fn test_int_division_reste_entier() {
+    // entier / entier → division entière (rétrocompatibilité)
+    assert_eq!(run_program("PRINT 10 / 3"), "3\n");
+}
+
+#[test]
+fn test_mixed_int_float_addition() {
+    // int + float → float
+    assert_eq!(run_program("PRINT 1 + 0.5"), "1.5\n");
+}
+
+#[test]
+fn test_mixed_float_int_division() {
+    // float / int → division réelle
+    assert_eq!(run_program("PRINT 10.0 / 3"), "3.3333333\n");
+}
+
+#[test]
+fn test_float_variable() {
+    assert_eq!(run_program("X = 3.14\nPRINT X"), "3.14\n");
+}
+
+#[test]
+fn test_float_variable_arithmetique() {
+    assert_eq!(run_program("X = 1.5\nY = 2.5\nPRINT X + Y"), "4\n");
+}
+
+#[test]
+fn test_float_negatif() {
+    assert_eq!(run_program("PRINT -3.14"), "-3.14\n");
+}
+
+#[test]
+fn test_float_comparaison_vraie() {
+    assert_eq!(run_program("PRINT 3.14 < 4.0"), "-1\n");
+}
+
+#[test]
+fn test_float_comparaison_fausse() {
+    assert_eq!(run_program("PRINT 3.14 > 4.0"), "0\n");
+}
+
+#[test]
+fn test_sqr_float() {
+    // SQR retourne toujours un flottant (√2 arrondi à 7 décimales)
+    assert_eq!(run_program("PRINT SQR(2.0)"), "1.4142136\n");
+}
+
+#[test]
+fn test_abs_float() {
+    assert_eq!(run_program("PRINT ABS(-3.14)"), "3.14\n");
+}
+
+#[test]
+fn test_abs_float_positif() {
+    assert_eq!(run_program("PRINT ABS(2.71)"), "2.71\n");
+}
+
+#[test]
+fn test_sgn_float_negatif() {
+    assert_eq!(run_program("PRINT SGN(-2.5)"), "-1\n");
+}
+
+#[test]
+fn test_sgn_float_positif() {
+    assert_eq!(run_program("PRINT SGN(0.1)"), "1\n");
+}
+
+#[test]
+fn test_val_float() {
+    assert_eq!(run_program(r#"PRINT VAL("2.5")"#), "2.5\n");
+}
+
+#[test]
+fn test_str_dollar_float() {
+    assert_eq!(run_program("PRINT STR$(3.14)"), "3.14\n");
+}
+
+#[test]
+fn test_int_builtin() {
+    assert_eq!(run_program("PRINT INT(3.9)"), "3\n");
+}
+
+#[test]
+fn test_int_builtin_negatif() {
+    // INT arrondit vers le bas (floor)
+    assert_eq!(run_program("PRINT INT(-3.1)"), "-4\n");
+}
+
+#[test]
+fn test_fix_builtin() {
+    // FIX tronque vers zéro
+    assert_eq!(run_program("PRINT FIX(-3.9)"), "-3\n");
+}
+
+#[test]
+fn test_cint_builtin() {
+    assert_eq!(run_program("PRINT CINT(3.5)"), "4\n");
+}
+
+#[test]
+fn test_csng_builtin() {
+    // CSNG convertit en flottant
+    assert_eq!(run_program("PRINT CSNG(5)"), "5\n");
+}
+
+#[test]
+fn test_for_float_step() {
+    // FOR avec pas flottant
+    let src = "FOR X = 1.0 TO 2.0 STEP 0.5\nPRINT X\nNEXT X";
+    assert_eq!(run_program(src), "1\n1.5\n2\n");
+}
+
+#[test]
+fn test_for_float_from_to() {
+    let src = "FOR X = 0.0 TO 1.0 STEP 0.25\nPRINT X\nNEXT X";
+    assert_eq!(run_program(src), "0\n0.25\n0.5\n0.75\n1\n");
+}

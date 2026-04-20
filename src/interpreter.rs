@@ -2,6 +2,52 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use crate::ast::*;
 
+// ---------------------------------------------------------------------------
+// Value : valeur numérique unifiée (entier ou flottant)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone)]
+pub enum Value {
+    Int(i64),
+    Float(f64),
+}
+
+impl Default for Value {
+    fn default() -> Self { Value::Int(0) }
+}
+
+impl Value {
+    fn to_f64(&self) -> f64 {
+        match self {
+            Value::Int(n)   => *n as f64,
+            Value::Float(f) => *f,
+        }
+    }
+    fn to_i64(&self) -> i64 {
+        match self {
+            Value::Int(n)   => *n,
+            Value::Float(f) => *f as i64,
+        }
+    }
+    fn is_float(&self) -> bool {
+        matches!(self, Value::Float(_))
+    }
+}
+
+fn format_float(f: f64) -> String {
+    if f.fract() == 0.0 && f.abs() < 1e15 {
+        format!("{}", f as i64)
+    } else {
+        let s = format!("{:.7}", f);
+        let s = s.trim_end_matches('0');
+        s.trim_end_matches('.').to_string()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tableaux génériques
+// ---------------------------------------------------------------------------
+
 struct ArrayData<T> {
     dims: Vec<usize>, // taille par dimension (max_index + 1)
     data: Vec<T>,
@@ -28,21 +74,25 @@ impl<T: Default + Clone> ArrayData<T> {
     fn set(&mut self, indices: &[i64], val: T) { let i = self.flat_index(indices); self.data[i] = val; }
 }
 
+// ---------------------------------------------------------------------------
+// État de l'interpréteur
+// ---------------------------------------------------------------------------
+
 struct State {
-    int_vars: HashMap<String, i64>,
-    str_vars: HashMap<String, String>,
-    str_dims: HashMap<String, usize>,
-    int_arrays: HashMap<String, ArrayData<i64>>,
-    str_arrays: HashMap<String, ArrayData<String>>,
+    num_vars:    HashMap<String, Value>,
+    str_vars:    HashMap<String, String>,
+    str_dims:    HashMap<String, usize>,
+    num_arrays:  HashMap<String, ArrayData<Value>>,
+    str_arrays:  HashMap<String, ArrayData<String>>,
 }
 
 impl State {
     fn new() -> Self {
         State {
-            int_vars: HashMap::new(),
-            str_vars: HashMap::new(),
-            str_dims: HashMap::new(),
-            int_arrays: HashMap::new(),
+            num_vars:   HashMap::new(),
+            str_vars:   HashMap::new(),
+            str_dims:   HashMap::new(),
+            num_arrays: HashMap::new(),
             str_arrays: HashMap::new(),
         }
     }
@@ -57,95 +107,136 @@ impl State {
             };
             self.str_vars.insert(var.to_string(), s);
         } else {
-            let n = self.eval_int(value);
-            self.int_vars.insert(var.to_string(), n);
+            let v = self.eval_num(value);
+            self.num_vars.insert(var.to_string(), v);
         }
     }
 
-    fn int_builtin(&self, name: &str, args: &[Expr]) -> Option<i64> {
+    // -----------------------------------------------------------------------
+    // Fonctions built-in numériques → Option<Value>
+    // -----------------------------------------------------------------------
+
+    fn num_builtin(&self, name: &str, args: &[Expr]) -> Option<Value> {
         match name {
             "LEN" => {
                 assert_eq!(args.len(), 1, "LEN attend 1 argument");
-                Some(self.eval_str(&args[0]).chars().count() as i64)
+                Some(Value::Int(self.eval_str(&args[0]).chars().count() as i64))
             }
             "ASC" => {
                 assert_eq!(args.len(), 1, "ASC attend 1 argument");
                 let s = self.eval_str(&args[0]);
-                Some(s.chars().next().map_or(0, |c| c as i64))
+                Some(Value::Int(s.chars().next().map_or(0, |c| c as i64)))
             }
             "VAL" => {
                 assert_eq!(args.len(), 1, "VAL attend 1 argument");
                 let s = self.eval_str(&args[0]);
-                Some(s.trim().parse::<i64>().unwrap_or(0))
+                let s = s.trim();
+                if let Ok(n) = s.parse::<i64>() {
+                    Some(Value::Int(n))
+                } else if let Ok(f) = s.parse::<f64>() {
+                    Some(Value::Float(f))
+                } else {
+                    Some(Value::Int(0))
+                }
             }
             "INSTR" => {
                 match args.len() {
                     2 => {
                         let s = self.eval_str(&args[0]);
                         let sub = self.eval_str(&args[1]);
-                        Some(match s.find(sub.as_str()) {
+                        Some(Value::Int(match s.find(sub.as_str()) {
                             Some(pos) => s[..pos].chars().count() as i64 + 1,
                             None => 0,
-                        })
+                        }))
                     }
                     3 => {
-                        let start = (self.eval_int(&args[0]) - 1).max(0) as usize;
+                        let start = (self.eval_num(&args[0]).to_i64() - 1).max(0) as usize;
                         let s = self.eval_str(&args[1]);
                         let sub = self.eval_str(&args[2]);
                         let chars: Vec<char> = s.chars().collect();
                         let slice: String = chars[start.min(chars.len())..].iter().collect();
-                        Some(match slice.find(sub.as_str()) {
+                        Some(Value::Int(match slice.find(sub.as_str()) {
                             Some(pos) => start as i64 + slice[..pos].chars().count() as i64 + 1,
                             None => 0,
-                        })
+                        }))
                     }
                     _ => panic!("INSTR attend 2 ou 3 arguments"),
                 }
             }
             "ABS" => {
                 assert_eq!(args.len(), 1, "ABS attend 1 argument");
-                Some(self.eval_int(&args[0]).abs())
+                Some(match self.eval_num(&args[0]) {
+                    Value::Int(n)   => Value::Int(n.abs()),
+                    Value::Float(f) => Value::Float(f.abs()),
+                })
             }
             "SGN" => {
                 assert_eq!(args.len(), 1, "SGN attend 1 argument");
-                let n = self.eval_int(&args[0]);
-                Some(if n > 0 { 1 } else if n < 0 { -1 } else { 0 })
+                let n = self.eval_num(&args[0]).to_f64();
+                Some(Value::Int(if n > 0.0 { 1 } else if n < 0.0 { -1 } else { 0 }))
             }
             "SQR" => {
                 assert_eq!(args.len(), 1, "SQR attend 1 argument");
-                let n = self.eval_int(&args[0]);
-                Some((n as f64).sqrt() as i64)
+                let n = self.eval_num(&args[0]).to_f64();
+                Some(Value::Float(n.sqrt()))
+            }
+            "INT" => {
+                assert_eq!(args.len(), 1, "INT attend 1 argument");
+                let f = self.eval_num(&args[0]).to_f64();
+                Some(Value::Int(f.floor() as i64))
+            }
+            "FIX" => {
+                assert_eq!(args.len(), 1, "FIX attend 1 argument");
+                let f = self.eval_num(&args[0]).to_f64();
+                Some(Value::Int(f.trunc() as i64))
+            }
+            "CINT" => {
+                assert_eq!(args.len(), 1, "CINT attend 1 argument");
+                let f = self.eval_num(&args[0]).to_f64();
+                Some(Value::Int(f.round() as i64))
+            }
+            "CSNG" | "CDBL" => {
+                assert_eq!(args.len(), 1, "{} attend 1 argument", name);
+                let f = self.eval_num(&args[0]).to_f64();
+                Some(Value::Float(f))
             }
             _ => None,
         }
     }
 
+    // -----------------------------------------------------------------------
+    // Fonctions built-in chaînes → Option<String>
+    // -----------------------------------------------------------------------
+
     fn str_builtin(&self, name: &str, args: &[Expr]) -> Option<String> {
         match name {
             "STR$" => {
                 assert_eq!(args.len(), 1, "STR$ attend 1 argument");
-                Some(self.eval_int(&args[0]).to_string())
+                Some(match self.eval_num(&args[0]) {
+                    Value::Int(n)   => n.to_string(),
+                    Value::Float(f) => format_float(f),
+                })
             }
             "CHR$" => {
                 assert_eq!(args.len(), 1, "CHR$ attend 1 argument");
-                let n = self.eval_int(&args[0]) as u32;
+                let n = self.eval_num(&args[0]).to_i64() as u32;
                 Some(char::from_u32(n).map_or(String::new(), |c| c.to_string()))
             }
             "SPACE$" => {
                 assert_eq!(args.len(), 1, "SPACE$ attend 1 argument");
-                let n = self.eval_int(&args[0]).max(0) as usize;
+                let n = self.eval_num(&args[0]).to_i64().max(0) as usize;
                 Some(" ".repeat(n))
             }
             "LEFT$" => {
                 assert_eq!(args.len(), 2, "LEFT$ attend 2 arguments");
                 let s = self.eval_str(&args[0]);
-                let n = self.eval_int(&args[1]).max(0) as usize;
+                let n = self.eval_num(&args[1]).to_i64().max(0) as usize;
                 Some(s.chars().take(n).collect())
             }
             "RIGHT$" => {
                 assert_eq!(args.len(), 2, "RIGHT$ attend 2 arguments");
                 let s = self.eval_str(&args[0]);
-                let n = self.eval_int(&args[1]).max(0) as usize;
+                let n = self.eval_num(&args[1]).to_i64().max(0) as usize;
                 let chars: Vec<char> = s.chars().collect();
                 let start = chars.len().saturating_sub(n);
                 Some(chars[start..].iter().collect())
@@ -153,13 +244,13 @@ impl State {
             "MID$" => {
                 assert!(args.len() == 2 || args.len() == 3, "MID$ attend 2 ou 3 arguments");
                 let s = self.eval_str(&args[0]);
-                let start = (self.eval_int(&args[1]) - 1).max(0) as usize;
+                let start = (self.eval_num(&args[1]).to_i64() - 1).max(0) as usize;
                 let chars: Vec<char> = s.chars().collect();
                 let from = start.min(chars.len());
                 Some(if args.len() == 2 {
                     chars[from..].iter().collect()
                 } else {
-                    let len = self.eval_int(&args[2]).max(0) as usize;
+                    let len = self.eval_num(&args[2]).to_i64().max(0) as usize;
                     chars[from..].iter().take(len).collect()
                 })
             }
@@ -183,45 +274,110 @@ impl State {
         }
     }
 
-    fn eval_int(&self, expr: &Expr) -> i64 {
+    // -----------------------------------------------------------------------
+    // eval_num : évalue une expression numérique → Value
+    // -----------------------------------------------------------------------
+
+    fn eval_num(&self, expr: &Expr) -> Value {
         match expr {
-            Expr::Integer(n) => *n,
+            Expr::Integer(n) => Value::Int(*n),
+            Expr::Float(f)   => Value::Float(*f),
             Expr::Variable(name) if !name.ends_with('$') => {
-                *self.int_vars.get(name).unwrap_or(&0)
+                self.num_vars.get(name).cloned().unwrap_or(Value::Int(0))
             }
             Expr::ArrayAccess { name, indices } if !name.ends_with('$') => {
-                if let Some(result) = self.int_builtin(name, indices) {
+                if let Some(result) = self.num_builtin(name, indices) {
                     return result;
                 }
-                let idx: Vec<i64> = indices.iter().map(|e| self.eval_int(e)).collect();
-                *self.int_arrays.get(name)
-                    .unwrap_or_else(|| panic!("Tableau entier ou fonction {} non déclaré(e)", name))
+                let idx: Vec<i64> = indices.iter().map(|e| self.eval_num(e).to_i64()).collect();
+                self.num_arrays.get(name)
+                    .unwrap_or_else(|| panic!("Tableau numérique ou fonction {} non déclaré(e)", name))
                     .get(&idx)
+                    .clone()
             }
             Expr::UnaryOp { op, operand } => match op {
-                UnaryOp::Neg => -self.eval_int(operand),
-                UnaryOp::Pos =>  self.eval_int(operand),
-                UnaryOp::Not => !self.eval_int(operand),
+                UnaryOp::Neg => match self.eval_num(operand) {
+                    Value::Int(n)   => Value::Int(-n),
+                    Value::Float(f) => Value::Float(-f),
+                },
+                UnaryOp::Pos => self.eval_num(operand),
+                UnaryOp::Not => Value::Int(!self.eval_num(operand).to_i64()),
             },
-            Expr::BinOp { op, left, right } => match op {
-                Op::Add => self.eval_int(left) + self.eval_int(right),
-                Op::Sub => self.eval_int(left) - self.eval_int(right),
-                Op::Mul => self.eval_int(left) * self.eval_int(right),
-                Op::Div => self.eval_int(left) / self.eval_int(right),
-                Op::Mod => self.eval_int(left) % self.eval_int(right),
-                Op::Eq  => if self.eval_int(left) == self.eval_int(right) { -1 } else { 0 },
-                Op::Ne  => if self.eval_int(left) != self.eval_int(right) { -1 } else { 0 },
-                Op::Lt  => if self.eval_int(left) <  self.eval_int(right) { -1 } else { 0 },
-                Op::Gt  => if self.eval_int(left) >  self.eval_int(right) { -1 } else { 0 },
-                Op::Le  => if self.eval_int(left) <= self.eval_int(right) { -1 } else { 0 },
-                Op::Ge  => if self.eval_int(left) >= self.eval_int(right) { -1 } else { 0 },
-                Op::And => self.eval_int(left) & self.eval_int(right),
-                Op::Or  => self.eval_int(left) | self.eval_int(right),
-                Op::Xor => self.eval_int(left) ^ self.eval_int(right),
-            },
-            _ => panic!("Erreur de type : entier attendu"),
+            Expr::BinOp { op, left, right } => {
+                match op {
+                    // Arithmétique : promotion flottante si l'un des opérandes est flottant.
+                    // Exception : int / int = division entière (rétrocompatibilité).
+                    Op::Add | Op::Sub | Op::Mul | Op::Mod => {
+                        let l = self.eval_num(left);
+                        let r = self.eval_num(right);
+                        if l.is_float() || r.is_float() {
+                            let lf = l.to_f64();
+                            let rf = r.to_f64();
+                            Value::Float(match op {
+                                Op::Add => lf + rf,
+                                Op::Sub => lf - rf,
+                                Op::Mul => lf * rf,
+                                Op::Mod => lf % rf,
+                                _ => unreachable!(),
+                            })
+                        } else {
+                            let li = l.to_i64();
+                            let ri = r.to_i64();
+                            Value::Int(match op {
+                                Op::Add => li + ri,
+                                Op::Sub => li - ri,
+                                Op::Mul => li * ri,
+                                Op::Mod => li % ri,
+                                _ => unreachable!(),
+                            })
+                        }
+                    }
+                    Op::Div => {
+                        let l = self.eval_num(left);
+                        let r = self.eval_num(right);
+                        if l.is_float() || r.is_float() {
+                            Value::Float(l.to_f64() / r.to_f64())
+                        } else {
+                            // Division entière : rétrocompatibilité (PRINT 10/3 → 3)
+                            Value::Int(l.to_i64() / r.to_i64())
+                        }
+                    }
+                    // Comparaisons : résultat entier -1 (vrai) ou 0 (faux)
+                    Op::Eq | Op::Ne | Op::Lt | Op::Gt | Op::Le | Op::Ge => {
+                        let l = self.eval_num(left);
+                        let r = self.eval_num(right);
+                        let result = if l.is_float() || r.is_float() {
+                            let lf = l.to_f64(); let rf = r.to_f64();
+                            match op {
+                                Op::Eq => lf == rf, Op::Ne => lf != rf,
+                                Op::Lt => lf <  rf, Op::Gt => lf >  rf,
+                                Op::Le => lf <= rf, Op::Ge => lf >= rf,
+                                _ => unreachable!(),
+                            }
+                        } else {
+                            let li = l.to_i64(); let ri = r.to_i64();
+                            match op {
+                                Op::Eq => li == ri, Op::Ne => li != ri,
+                                Op::Lt => li <  ri, Op::Gt => li >  ri,
+                                Op::Le => li <= ri, Op::Ge => li >= ri,
+                                _ => unreachable!(),
+                            }
+                        };
+                        Value::Int(if result { -1 } else { 0 })
+                    }
+                    // Opérateurs bit à bit : toujours entiers
+                    Op::And => Value::Int(self.eval_num(left).to_i64() & self.eval_num(right).to_i64()),
+                    Op::Or  => Value::Int(self.eval_num(left).to_i64() | self.eval_num(right).to_i64()),
+                    Op::Xor => Value::Int(self.eval_num(left).to_i64() ^ self.eval_num(right).to_i64()),
+                }
+            }
+            _ => panic!("Erreur de type : valeur numérique attendue"),
         }
     }
+
+    // -----------------------------------------------------------------------
+    // eval_str
+    // -----------------------------------------------------------------------
 
     fn eval_str(&self, expr: &Expr) -> String {
         match expr {
@@ -233,7 +389,7 @@ impl State {
                 if let Some(result) = self.str_builtin(name, indices) {
                     return result;
                 }
-                let idx: Vec<i64> = indices.iter().map(|e| self.eval_int(e)).collect();
+                let idx: Vec<i64> = indices.iter().map(|e| self.eval_num(e).to_i64()).collect();
                 self.str_arrays.get(name)
                     .unwrap_or_else(|| panic!("Tableau chaîne ou fonction {} non déclaré(e)", name))
                     .get(&idx)
@@ -260,23 +416,35 @@ impl State {
         if Self::is_string_expr(expr) {
             self.eval_str(expr)
         } else {
-            self.eval_int(expr).to_string()
+            match self.eval_num(expr) {
+                Value::Int(n)   => n.to_string(),
+                Value::Float(f) => format_float(f),
+            }
         }
     }
 }
 
+// ---------------------------------------------------------------------------
+// Frames
+// ---------------------------------------------------------------------------
+
 struct ProcFrame {
     return_pc: usize,
-    saved_int_vars: HashMap<String, i64>,
+    saved_num_vars: HashMap<String, Value>,
     saved_str_vars: HashMap<String, String>,
 }
 
 struct ForFrame {
     var: String,
-    to: i64,
-    step: i64,
-    body_start: usize, // PC of the line after FOR
+    to: f64,
+    step: f64,
+    is_float: bool,
+    body_start: usize,
 }
+
+// ---------------------------------------------------------------------------
+// Fonctions utilitaires de navigation
+// ---------------------------------------------------------------------------
 
 fn find_end_sub(lines: &[Line], sub_pc: usize) -> usize {
     let mut depth = 0usize;
@@ -336,9 +504,7 @@ fn find_matching_wend(lines: &[Line], while_pc: usize) -> usize {
         match &lines[i].statement {
             Statement::While { .. } => depth += 1,
             Statement::Wend => {
-                if depth == 0 {
-                    return i;
-                }
+                if depth == 0 { return i; }
                 depth -= 1;
             }
             _ => {}
@@ -346,6 +512,10 @@ fn find_matching_wend(lines: &[Line], while_pc: usize) -> usize {
     }
     panic!("WEND sans WHILE correspondant");
 }
+
+// ---------------------------------------------------------------------------
+// exec_stmt
+// ---------------------------------------------------------------------------
 
 fn exec_stmt(
     stmt: &Statement,
@@ -365,31 +535,29 @@ fn exec_stmt(
 
         Statement::Dim { var, dims } => {
             if var.ends_with('$') {
-                // Crée le tableau chaîne (usage avec indices)
                 state.str_arrays.insert(var.clone(), ArrayData::new(dims));
-                // Rétrocompatibilité 1D : str_dims pour la troncature scalaire
                 if dims.len() == 1 {
                     state.str_dims.insert(var.clone(), dims[0]);
                     state.str_vars.entry(var.clone()).or_insert_with(String::new);
                 }
             } else {
-                state.int_arrays.insert(var.clone(), ArrayData::new(dims));
+                state.num_arrays.insert(var.clone(), ArrayData::new(dims));
             }
             pc + 1
         }
 
         Statement::ArraySet { name, indices, value } => {
-            let idx: Vec<i64> = indices.iter().map(|e| state.eval_int(e)).collect();
+            let idx: Vec<i64> = indices.iter().map(|e| state.eval_num(e).to_i64()).collect();
             if name.ends_with('$') {
                 let s = state.eval_str(value);
                 state.str_arrays.get_mut(name)
                     .unwrap_or_else(|| panic!("Tableau chaîne {} non déclaré", name))
                     .set(&idx, s);
             } else {
-                let n = state.eval_int(value);
-                state.int_arrays.get_mut(name)
-                    .unwrap_or_else(|| panic!("Tableau entier {} non déclaré", name))
-                    .set(&idx, n);
+                let v = state.eval_num(value);
+                state.num_arrays.get_mut(name)
+                    .unwrap_or_else(|| panic!("Tableau numérique {} non déclaré", name))
+                    .set(&idx, v);
             }
             pc + 1
         }
@@ -410,7 +578,7 @@ fn exec_stmt(
         Statement::Goto(target) => find_target(lines, target),
 
         Statement::If { cond, then_stmt, else_stmt } => {
-            if state.eval_int(cond) != 0 {
+            if state.eval_num(cond).to_i64() != 0 {
                 exec_stmt(then_stmt, pc, lines, state, for_stack, while_stack, call_stack, proc_stack, sub_table, output)
             } else if let Some(e) = else_stmt {
                 exec_stmt(e, pc, lines, state, for_stack, while_stack, call_stack, proc_stack, sub_table, output)
@@ -420,22 +588,30 @@ fn exec_stmt(
         }
 
         Statement::For { var, from, to, step } => {
-            let from_val = state.eval_int(from);
-            let to_val = state.eval_int(to);
-            let step_val = step.as_ref().map_or(1, |s| state.eval_int(s));
-            state.int_vars.insert(var.clone(), from_val);
+            let from_val = state.eval_num(from);
+            let to_val   = state.eval_num(to);
+            let step_val = step.as_ref().map_or(Value::Int(1), |s| state.eval_num(s));
+
+            let is_float = from_val.is_float() || to_val.is_float() || step_val.is_float();
+            let from_f = from_val.to_f64();
+            let to_f   = to_val.to_f64();
+            let step_f = step_val.to_f64();
+
+            // Initialiser la variable de boucle
+            let init_val = if is_float { Value::Float(from_f) } else { Value::Int(from_f as i64) };
+            state.num_vars.insert(var.clone(), init_val);
 
             let next_pc = find_matching_next(lines, pc);
-            // Check loop condition before entering
-            let done = if step_val >= 0 { from_val > to_val } else { from_val < to_val };
+            let done = if step_f >= 0.0 { from_f > to_f } else { from_f < to_f };
             if done {
                 return next_pc + 1;
             }
 
             for_stack.push(ForFrame {
                 var: var.clone(),
-                to: to_val,
-                step: step_val,
+                to: to_f,
+                step: step_f,
+                is_float,
                 body_start: pc + 1,
             });
             pc + 1
@@ -449,23 +625,25 @@ fn exec_stmt(
                     panic!("NEXT {} ne correspond pas au FOR {}", v, frame.var);
                 }
             }
-            let new_val = *state.int_vars.get(&frame.var).unwrap_or(&0) + frame.step;
-            let done = if frame.step >= 0 {
-                new_val > frame.to
-            } else {
-                new_val < frame.to
-            };
+            let cur = state.num_vars.get(&frame.var).cloned().unwrap_or(Value::Int(0));
+            let new_f = cur.to_f64() + frame.step;
+            let done = if frame.step >= 0.0 { new_f > frame.to } else { new_f < frame.to };
             if done {
                 for_stack.pop();
                 pc + 1
             } else {
-                state.int_vars.insert(frame.var.clone(), new_val);
+                let new_val = if frame.is_float {
+                    Value::Float(new_f)
+                } else {
+                    Value::Int(new_f as i64)
+                };
+                state.num_vars.insert(frame.var.clone(), new_val);
                 frame.body_start
             }
         }
 
         Statement::While { cond } => {
-            if state.eval_int(cond) != 0 {
+            if state.eval_num(cond).to_i64() != 0 {
                 while_stack.push(pc);
                 pc + 1
             } else {
@@ -478,7 +656,7 @@ fn exec_stmt(
                 .unwrap_or_else(|| panic!("WEND sans WHILE"));
             match &lines[while_pc].statement {
                 Statement::While { cond } => {
-                    if state.eval_int(cond) != 0 {
+                    if state.eval_num(cond).to_i64() != 0 {
                         while_stack.push(while_pc);
                         while_pc + 1
                     } else {
@@ -500,14 +678,13 @@ fn exec_stmt(
         }
 
         Statement::SubDef { .. } => {
-            // Saute le corps du sous-programme (exécuté uniquement via CALL)
             find_end_sub(lines, pc) + 1
         }
 
         Statement::EndSub => {
             let frame = proc_stack.pop()
                 .unwrap_or_else(|| panic!("END SUB sans CALL correspondant"));
-            state.int_vars = frame.saved_int_vars;
+            state.num_vars = frame.saved_num_vars;
             state.str_vars = frame.saved_str_vars;
             frame.return_pc
         }
@@ -518,21 +695,19 @@ fn exec_stmt(
             let body_start = *body_start;
             let params = params.clone();
 
-            // Évaluer les arguments dans la portée appelante
-            let mut new_int_vars: HashMap<String, i64> = HashMap::new();
+            let mut new_num_vars: HashMap<String, Value> = HashMap::new();
             let mut new_str_vars: HashMap<String, String> = HashMap::new();
             for (param, arg) in params.iter().zip(args.iter()) {
                 if param.ends_with('$') {
                     new_str_vars.insert(param.clone(), state.eval_str(arg));
                 } else {
-                    new_int_vars.insert(param.clone(), state.eval_int(arg));
+                    new_num_vars.insert(param.clone(), state.eval_num(arg));
                 }
             }
 
-            // Sauvegarder la portée courante et entrer dans la nouvelle
             proc_stack.push(ProcFrame {
                 return_pc: pc + 1,
-                saved_int_vars: std::mem::replace(&mut state.int_vars, new_int_vars),
+                saved_num_vars: std::mem::replace(&mut state.num_vars, new_num_vars),
                 saved_str_vars: std::mem::replace(&mut state.str_vars, new_str_vars),
             });
             body_start
@@ -540,19 +715,22 @@ fn exec_stmt(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Point d'entrée public
+// ---------------------------------------------------------------------------
+
 pub fn run(program: &Program) {
     run_with_output(program, &mut io::stdout());
 }
 
 pub fn run_with_output(program: &Program, output: &mut dyn Write) {
     let mut state = State::new();
-    let mut for_stack: Vec<ForFrame> = Vec::new();
-    let mut while_stack: Vec<usize> = Vec::new();
-    let mut call_stack: Vec<usize> = Vec::new();
-    let mut proc_stack: Vec<ProcFrame> = Vec::new();
+    let mut for_stack:   Vec<ForFrame>  = Vec::new();
+    let mut while_stack: Vec<usize>     = Vec::new();
+    let mut call_stack:  Vec<usize>     = Vec::new();
+    let mut proc_stack:  Vec<ProcFrame> = Vec::new();
     let lines = &program.lines;
 
-    // Construction de la table des sous-programmes
     let mut sub_table: HashMap<String, (usize, Vec<String>)> = HashMap::new();
     for (i, line) in lines.iter().enumerate() {
         if let Statement::SubDef { name, params } = &line.statement {

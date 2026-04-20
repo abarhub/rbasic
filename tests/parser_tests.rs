@@ -1,4 +1,6 @@
 use rbasic::ast::{Expr, Op, Statement, UnaryOp};
+#[allow(unused_imports)]
+use rbasic::ast::JumpTarget;
 use rbasic::parser::parse;
 
 fn stmt(source: &str) -> Statement {
@@ -580,4 +582,79 @@ fn test_call_avec_args() {
         assert_eq!(name, "MaSub");
         assert_eq!(args.len(), 2);
     } else { panic!("Expected Call"); }
+}
+
+// --- Nombres flottants ---
+
+#[test]
+fn test_float_literal() {
+    let s = stmt("X = 3.14");
+    if let Statement::Let { var, value: Expr::Float(f) } = s {
+        assert_eq!(var, "X");
+        assert!((f - 3.14).abs() < 1e-10);
+    } else {
+        panic!("Expected Let with Float");
+    }
+}
+
+#[test]
+fn test_float_zero() {
+    let s = stmt("X = 0.0");
+    if let Statement::Let { value: Expr::Float(f), .. } = s {
+        assert_eq!(f, 0.0);
+    } else {
+        panic!("Expected Float");
+    }
+}
+
+#[test]
+fn test_float_without_decimal_is_integer() {
+    // "42" sans point décimal doit rester un entier
+    let s = stmt("X = 42");
+    assert!(matches!(s, Statement::Let { value: Expr::Integer(42), .. }));
+}
+
+#[test]
+fn test_float_in_expression() {
+    // 1.5 + 2.5 : les deux opérandes sont des flottants
+    let (op, l, r) = binop("PRINT 1.5 + 2.5");
+    assert!(matches!(op, Op::Add));
+    if let Expr::Float(f) = *l { assert!((f - 1.5).abs() < 1e-10); } else { panic!("Expected Float left"); }
+    if let Expr::Float(f) = *r { assert!((f - 2.5).abs() < 1e-10); } else { panic!("Expected Float right"); }
+}
+
+#[test]
+fn test_float_mixed_expression() {
+    // 3 + 1.5 : entier + flottant
+    let (op, l, r) = binop("PRINT 3 + 1.5");
+    assert!(matches!(op, Op::Add));
+    assert!(matches!(*l, Expr::Integer(3)));
+    if let Expr::Float(f) = *r { assert!((f - 1.5).abs() < 1e-10); } else { panic!("Expected Float right"); }
+}
+
+#[test]
+fn test_float_in_for() {
+    let s = stmt("FOR X = 1.0 TO 2.0 STEP 0.5");
+    if let Statement::For { var, from: Expr::Float(f), to: Expr::Float(t), step: Some(Expr::Float(st)) } = s {
+        assert_eq!(var, "X");
+        assert!((f - 1.0).abs() < 1e-10);
+        assert!((t - 2.0).abs() < 1e-10);
+        assert!((st - 0.5).abs() < 1e-10);
+    } else {
+        panic!("Expected For with floats");
+    }
+}
+
+#[test]
+fn test_float_print() {
+    let s = stmt("PRINT 3.14");
+    if let Statement::Print { mut values } = s {
+        if let Expr::Float(f) = values.remove(0) {
+            assert!((f - 3.14).abs() < 1e-10);
+        } else {
+            panic!("Expected Float in Print");
+        }
+    } else {
+        panic!("Expected Print");
+    }
 }
