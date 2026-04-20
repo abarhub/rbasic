@@ -78,6 +78,19 @@ pub enum Statement {
     // --- Divers ---
     Sleep     { duration: Expr },
     Randomize { seed: Expr },
+    // --- Console ---
+    /// SCREEN mode  — no-op (mode texte uniquement)
+    Screen { mode: Expr },
+    /// WIDTH cols   — no-op (la largeur est gérée par le terminal)
+    Width  { cols: Expr },
+    /// COLOR fg [, bg]  — couleur texte / fond (0-15, QBasic)
+    Color  { fg: Expr, bg: Option<Expr> },
+    /// LOCATE row, col  — positionne le curseur (1-based)
+    Locate { row: Expr, col: Expr },
+    /// CLS  — efface l'écran
+    Cls,
+    /// BEEP — émet un son (BEL)
+    Beep,
 }
 
 #[derive(Debug, Clone)]
