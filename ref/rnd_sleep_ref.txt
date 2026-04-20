@@ -1,0 +1,27 @@
+=== STRING$ ===
+AAAAA
+AAA
+----------
+|    |
+*****
+=== TIMER ===
+Secondes depuis epoch : 1776667951
+=== RANDOMIZE et RND ===
+66
+45
+20
+96
+25
+=== Sequence reproductible ===
+0.6060559
+0.2259206
+0.8945232
+=== SLEEP ===
+avant
+apres (SLEEP 0)
+=== De 1 a 10 au hasard ===
+4
+4
+6
+6
+9
