@@ -1180,3 +1180,77 @@ fn test_declare_sub_with_params() {
     let src = "DECLARE SUB Double(N)\nCALL Double(7)\nSUB Double(N)\n    PRINT N * 2\nEND SUB";
     assert_eq!(run_program(src), "14\n");
 }
+
+// --- Console (no-ops hors terminal réel) ---
+
+#[test]
+fn test_screen_noop() {
+    assert_eq!(run_program("SCREEN 0\nPRINT \"ok\""), "ok\n");
+}
+
+#[test]
+fn test_width_noop() {
+    assert_eq!(run_program("WIDTH 80\nPRINT \"ok\""), "ok\n");
+}
+
+#[test]
+fn test_color_noop() {
+    // COLOR est un no-op hors terminal ; le programme continue normalement
+    assert_eq!(run_program("COLOR 14, 0\nPRINT \"jaune\""), "jaune\n");
+}
+
+#[test]
+fn test_locate_noop() {
+    assert_eq!(run_program("LOCATE 5, 10\nPRINT \"ici\""), "ici\n");
+}
+
+#[test]
+fn test_cls_noop() {
+    assert_eq!(run_program("CLS\nPRINT \"propre\""), "propre\n");
+}
+
+#[test]
+fn test_beep_does_not_crash() {
+    // BEEP émet BEL ; on vérifie que le programme continue sans planter
+    let out = run_program("BEEP\nPRINT \"apres\"");
+    assert!(out.contains("apres"));
+}
+
+#[test]
+fn test_inkey_empty_without_console() {
+    // Hors mode console, INKEY$ retourne toujours "" → LEN = 0
+    let src = "K$ = INKEY$\nPRINT LEN(K$)";
+    assert_eq!(run_program(src), "0\n");
+}
+
+#[test]
+fn test_inkey_print_empty() {
+    // INKEY$ directement dans PRINT : retourne une chaîne vide
+    assert_eq!(run_program("PRINT INKEY$"), "\n");
+}
+
+#[test]
+fn test_csrlin_without_console() {
+    // Hors terminal, CSRLIN retourne 1
+    assert_eq!(run_program("PRINT CSRLIN"), "1\n");
+}
+
+#[test]
+fn test_pos_without_console() {
+    // Hors terminal, POS(0) retourne 1
+    assert_eq!(run_program("PRINT POS(0)"), "1\n");
+}
+
+#[test]
+fn test_color_in_loop() {
+    // COLOR dans une boucle : pas de crash, le contenu s'affiche bien
+    let src = "FOR I = 1 TO 3\n    COLOR I\n    PRINT I\nNEXT I";
+    assert_eq!(run_program(src), "1\n2\n3\n");
+}
+
+#[test]
+fn test_locate_color_print() {
+    // Séquence typique : positionnement + couleur + affichage
+    let src = "LOCATE 1, 1\nCOLOR 15\nPRINT \"test\"";
+    assert_eq!(run_program(src), "test\n");
+}

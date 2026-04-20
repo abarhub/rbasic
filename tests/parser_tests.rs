@@ -783,3 +783,47 @@ fn test_declare_sub_with_params() {
         panic!("Expected DeclareSub");
     }
 }
+
+// --- Console ---
+
+#[test]
+fn test_screen_stmt() {
+    let s = stmt("SCREEN 0");
+    assert!(matches!(s, Statement::Screen { .. }));
+}
+
+#[test]
+fn test_width_stmt() {
+    let s = stmt("WIDTH 80");
+    assert!(matches!(s, Statement::Width { .. }));
+}
+
+#[test]
+fn test_color_fg_only() {
+    let s = stmt("COLOR 14");
+    assert!(matches!(s, Statement::Color { bg: None, .. }));
+}
+
+#[test]
+fn test_color_fg_bg() {
+    let s = stmt("COLOR 14, 1");
+    assert!(matches!(s, Statement::Color { bg: Some(_), .. }));
+}
+
+#[test]
+fn test_locate_stmt() {
+    let s = stmt("LOCATE 5, 10");
+    assert!(matches!(s, Statement::Locate { .. }));
+}
+
+#[test]
+fn test_cls_stmt() {
+    let s = stmt("CLS");
+    assert!(matches!(s, Statement::Cls));
+}
+
+#[test]
+fn test_beep_stmt() {
+    let s = stmt("BEEP");
+    assert!(matches!(s, Statement::Beep));
+}

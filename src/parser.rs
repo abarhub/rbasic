@@ -429,6 +429,57 @@ fn loop_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
 }
 
 // ---------------------------------------------------------------------------
+// Console : SCREEN, WIDTH, COLOR, LOCATE, CLS, BEEP
+// ---------------------------------------------------------------------------
+
+fn screen_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("SCREEN")
+        .ignore_then(hspace())
+        .ignore_then(expr())
+        .map(|mode| Statement::Screen { mode })
+}
+
+fn width_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("WIDTH")
+        .ignore_then(hspace())
+        .ignore_then(expr())
+        .map(|cols| Statement::Width { cols })
+}
+
+fn color_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("COLOR")
+        .ignore_then(hspace())
+        .ignore_then(expr())
+        .then(
+            hspace()
+                .ignore_then(just(','))
+                .ignore_then(hspace())
+                .ignore_then(expr())
+                .or_not()
+        )
+        .map(|(fg, bg)| Statement::Color { fg, bg })
+}
+
+fn locate_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("LOCATE")
+        .ignore_then(hspace())
+        .ignore_then(expr())
+        .then_ignore(hspace())
+        .then_ignore(just(','))
+        .then_ignore(hspace())
+        .then(expr())
+        .map(|(row, col)| Statement::Locate { row, col })
+}
+
+fn cls_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("CLS").to(Statement::Cls)
+}
+
+fn beep_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::keyword("BEEP").to(Statement::Beep)
+}
+
+// ---------------------------------------------------------------------------
 // IF multiligne
 // ---------------------------------------------------------------------------
 
@@ -509,6 +560,13 @@ fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
             .or(goto_stmt())
             .or(sleep_stmt())
             .or(randomize_stmt())
+            // Console
+            .or(screen_stmt())
+            .or(width_stmt())
+            .or(color_stmt())
+            .or(locate_stmt())
+            .or(cls_stmt())
+            .or(beep_stmt())
             // ELSEIF avant ELSE (ELSEIF contient ELSE comme préfixe)
             .or(elseif_stmt())
             .or(else_stmt())

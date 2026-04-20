@@ -1,8 +1,16 @@
 use std::cell::Cell;
 use std::collections::HashMap;
 use std::io::{self, Write};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use crate::ast::*;
+
+use crossterm::{
+    cursor::MoveTo,
+    event::{poll, read, Event, KeyCode},
+    execute,
+    style::{ResetColor, SetBackgroundColor, SetForegroundColor, Color as CtColor},
+    terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode},
+};
 
 // ---------------------------------------------------------------------------
 // Value : valeur numérique unifiée (entier ou flottant)
@@ -81,23 +89,29 @@ impl<T: Default + Clone> ArrayData<T> {
 // ---------------------------------------------------------------------------
 
 struct State {
-    num_vars:    HashMap<String, Value>,
-    str_vars:    HashMap<String, String>,
-    str_dims:    HashMap<String, usize>,
-    num_arrays:  HashMap<String, ArrayData<Value>>,
-    str_arrays:  HashMap<String, ArrayData<String>>,
-    rng_seed:    Cell<u64>,
+    num_vars:        HashMap<String, Value>,
+    str_vars:        HashMap<String, String>,
+    str_dims:        HashMap<String, usize>,
+    num_arrays:      HashMap<String, ArrayData<Value>>,
+    str_arrays:      HashMap<String, ArrayData<String>>,
+    rng_seed:        Cell<u64>,
+    /// true quand on tourne dans un vrai terminal (mode console activé)
+    console_enabled: bool,
+    /// Dernière touche lue par INKEY$ (vide si aucune)
+    last_inkey:      String,
 }
 
 impl State {
     fn new() -> Self {
         State {
-            num_vars:   HashMap::new(),
-            str_vars:   HashMap::new(),
-            str_dims:   HashMap::new(),
-            num_arrays: HashMap::new(),
-            str_arrays: HashMap::new(),
-            rng_seed:   Cell::new(0),
+            num_vars:        HashMap::new(),
+            str_vars:        HashMap::new(),
+            str_dims:        HashMap::new(),
+            num_arrays:      HashMap::new(),
+            str_arrays:      HashMap::new(),
+            rng_seed:        Cell::new(0),
+            console_enabled: false,
+            last_inkey:      String::new(),
         }
     }
 
@@ -225,6 +239,16 @@ impl State {
                 // RND() ou RND(n) : génère le prochain nombre aléatoire dans [0, 1)
                 Some(Value::Float(self.next_rnd()))
             }
+            // POS(n) : colonne courante du curseur (1-based, QBasic ignore n)
+            "POS" => {
+                Some(if self.console_enabled {
+                    crossterm::cursor::position()
+                        .map(|(col, _)| Value::Int(col as i64 + 1))
+                        .unwrap_or(Value::Int(1))
+                } else {
+                    Value::Int(1)
+                })
+            }
             _ => None,
         }
     }
@@ -321,9 +345,19 @@ impl State {
             Expr::Float(f)   => Value::Float(*f),
             Expr::Variable(name) if !name.ends_with('$') => {
                 match name.as_str() {
-                    "RND"   => Value::Float(self.next_rnd()),
-                    "TIMER" => Value::Float(Self::timer()),
-                    _       => self.num_vars.get(name).cloned().unwrap_or(Value::Int(0)),
+                    "RND"    => Value::Float(self.next_rnd()),
+                    "TIMER"  => Value::Float(Self::timer()),
+                    // CSRLIN : ligne courante du curseur (1-based)
+                    "CSRLIN" => {
+                        if self.console_enabled {
+                            crossterm::cursor::position()
+                                .map(|(_, row)| Value::Int(row as i64 + 1))
+                                .unwrap_or(Value::Int(1))
+                        } else {
+                            Value::Int(1)
+                        }
+                    }
+                    _ => self.num_vars.get(name).cloned().unwrap_or(Value::Int(0)),
                 }
             }
             Expr::ArrayAccess { name, indices } if !name.ends_with('$') => {
@@ -424,6 +458,10 @@ impl State {
         match expr {
             Expr::StringLit(s) => s.clone(),
             Expr::Variable(name) if name.ends_with('$') => {
+                // INKEY$ : retourne la dernière touche lue (non-bloquant)
+                if name == "INKEY$" {
+                    return self.last_inkey.clone();
+                }
                 self.str_vars.get(name).cloned().unwrap_or_default()
             }
             Expr::ArrayAccess { name, indices } if name.ends_with('$') => {
@@ -596,6 +634,102 @@ fn find_matching_loop(lines: &[Line], do_pc: usize) -> usize {
         }
     }
     panic!("LOOP sans DO correspondant");
+}
+
+// ---------------------------------------------------------------------------
+// Console helpers
+// ---------------------------------------------------------------------------
+
+/// Convertit un code couleur QBasic (0-15) en couleur crossterm.
+fn qbasic_color(n: u8) -> CtColor {
+    match n & 0x0F {
+        0  => CtColor::Black,
+        1  => CtColor::DarkBlue,
+        2  => CtColor::DarkGreen,
+        3  => CtColor::DarkCyan,
+        4  => CtColor::DarkRed,
+        5  => CtColor::DarkMagenta,
+        6  => CtColor::DarkYellow,   // Brown dans QBasic
+        7  => CtColor::Grey,
+        8  => CtColor::DarkGrey,
+        9  => CtColor::Blue,
+        10 => CtColor::Green,
+        11 => CtColor::Cyan,
+        12 => CtColor::Red,
+        13 => CtColor::Magenta,
+        14 => CtColor::Yellow,
+        15 => CtColor::White,
+        _  => CtColor::White,
+    }
+}
+
+/// Lit une touche sans bloquer (nécessite le mode raw activé).
+/// Retourne "" si aucune touche n'est disponible.
+/// Les touches spéciales retournent chr(0) + code BIOS (convention QBasic).
+fn poll_inkey() -> String {
+    if poll(Duration::ZERO).unwrap_or(false) {
+        match read() {
+            Ok(Event::Key(key_event)) => match key_event.code {
+                KeyCode::Char(c)  => c.to_string(),
+                KeyCode::Enter    => "\r".to_string(),
+                KeyCode::Esc      => "\x1b".to_string(),
+                KeyCode::Backspace => "\x08".to_string(),
+                KeyCode::Tab      => "\t".to_string(),
+                // Touches de déplacement — codes BIOS PC
+                KeyCode::Up       => "\x00H".to_string(),
+                KeyCode::Down     => "\x00P".to_string(),
+                KeyCode::Left     => "\x00K".to_string(),
+                KeyCode::Right    => "\x00M".to_string(),
+                KeyCode::Home     => "\x00G".to_string(),
+                KeyCode::End      => "\x00O".to_string(),
+                KeyCode::PageUp   => "\x00I".to_string(),
+                KeyCode::PageDown => "\x00Q".to_string(),
+                KeyCode::Insert   => "\x00R".to_string(),
+                KeyCode::Delete   => "\x00S".to_string(),
+                // Touches de fonction F1-F10
+                KeyCode::F(n) if n >= 1 && n <= 10 => {
+                    format!("\x00{}", char::from(58 + n))
+                }
+                _ => String::new(),
+            },
+            _ => String::new(),
+        }
+    } else {
+        String::new()
+    }
+}
+
+/// Adaptateur Write qui remplace les \n isolés par \r\n (mode raw terminal).
+struct RawOutput<W: Write>(W);
+
+impl<W: Write> Write for RawOutput<W> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let mut pos = 0;
+        while pos < buf.len() {
+            match buf[pos..].iter().position(|&b| b == b'\n') {
+                None => {
+                    self.0.write_all(&buf[pos..])?;
+                    break;
+                }
+                Some(rel) => {
+                    let abs = pos + rel;
+                    // Écrire le contenu avant \n
+                    if abs > pos {
+                        self.0.write_all(&buf[pos..abs])?;
+                    }
+                    // \r\n sauf si déjà précédé d'un \r
+                    if abs == 0 || buf[abs - 1] != b'\r' {
+                        self.0.write_all(b"\r\n")?;
+                    } else {
+                        self.0.write_all(b"\n")?;
+                    }
+                    pos = abs + 1;
+                }
+            }
+        }
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> { self.0.flush() }
 }
 
 // ---------------------------------------------------------------------------
@@ -908,6 +1042,58 @@ fn exec_stmt(
         // -----------------------------------------------------------------------
 
         Statement::DeclareSub { .. } => pc + 1,
+
+        // -----------------------------------------------------------------------
+        // Console
+        // -----------------------------------------------------------------------
+
+        // SCREEN mode — no-op (mode texte uniquement supporté)
+        Statement::Screen { .. } => pc + 1,
+
+        // WIDTH cols — no-op
+        Statement::Width { .. } => pc + 1,
+
+        // CLS — efface l'écran et ramène le curseur en haut à gauche
+        Statement::Cls => {
+            if state.console_enabled {
+                let _ = execute!(
+                    io::stdout(),
+                    Clear(ClearType::All),
+                    MoveTo(0, 0),
+                );
+            }
+            pc + 1
+        }
+
+        // BEEP — émet le caractère BEL (fonctionne même hors console)
+        Statement::Beep => {
+            write!(output, "\x07").unwrap();
+            output.flush().unwrap();
+            pc + 1
+        }
+
+        // COLOR fg [, bg] — définit les couleurs du texte suivant
+        Statement::Color { fg, bg } => {
+            if state.console_enabled {
+                let fg_n = state.eval_num(fg).to_i64().clamp(0, 15) as u8;
+                let _ = execute!(io::stdout(), SetForegroundColor(qbasic_color(fg_n)));
+                if let Some(bg_expr) = bg {
+                    let bg_n = state.eval_num(bg_expr).to_i64().clamp(0, 7) as u8;
+                    let _ = execute!(io::stdout(), SetBackgroundColor(qbasic_color(bg_n)));
+                }
+            }
+            pc + 1
+        }
+
+        // LOCATE row, col — positionne le curseur (QBasic : 1-based)
+        Statement::Locate { row, col } => {
+            if state.console_enabled {
+                let r = (state.eval_num(row).to_i64() as u16).saturating_sub(1);
+                let c = (state.eval_num(col).to_i64() as u16).saturating_sub(1);
+                let _ = execute!(io::stdout(), MoveTo(c, r));
+            }
+            pc + 1
+        }
     }
 }
 
@@ -915,12 +1101,8 @@ fn exec_stmt(
 // Point d'entrée public
 // ---------------------------------------------------------------------------
 
-pub fn run(program: &Program) {
-    run_with_output(program, &mut io::stdout());
-}
-
-pub fn run_with_output(program: &Program, output: &mut dyn Write) {
-    let mut state = State::new();
+/// Logique d'exécution commune à run() et run_with_output().
+fn run_internal(program: &Program, output: &mut dyn Write, state: &mut State) {
     let mut for_stack:   Vec<ForFrame>  = Vec::new();
     let mut while_stack: Vec<usize>     = Vec::new();
     let mut call_stack:  Vec<usize>     = Vec::new();
@@ -929,6 +1111,7 @@ pub fn run_with_output(program: &Program, output: &mut dyn Write) {
     let mut do_stack:    Vec<usize>     = Vec::new();
     let lines = &program.lines;
 
+    // Pré-scan des SUB pour la table de sous-programmes
     let mut sub_table: HashMap<String, (usize, Vec<String>)> = HashMap::new();
     for (i, line) in lines.iter().enumerate() {
         if let Statement::SubDef { name, params } = &line.statement {
@@ -938,11 +1121,15 @@ pub fn run_with_output(program: &Program, output: &mut dyn Write) {
 
     let mut pc = 0usize;
     while pc < lines.len() {
+        // Mise à jour INKEY$ avant chaque instruction
+        if state.console_enabled {
+            state.last_inkey = poll_inkey();
+        }
         pc = exec_stmt(
             &lines[pc].statement,
             pc,
             lines,
-            &mut state,
+            state,
             &mut for_stack,
             &mut while_stack,
             &mut call_stack,
@@ -953,4 +1140,31 @@ pub fn run_with_output(program: &Program, output: &mut dyn Write) {
             output,
         );
     }
+}
+
+/// Exécute le programme sur le terminal réel (mode raw, couleurs, curseur).
+pub fn run(program: &Program) {
+    let mut state = State::new();
+    state.console_enabled = true;
+
+    // Active le mode raw pour INKEY$ et les séquences de contrôle
+    let raw_ok = enable_raw_mode().is_ok();
+    {
+        let mut out = RawOutput(io::stdout());
+        run_internal(program, &mut out, &mut state);
+        let _ = out.flush();
+    }
+    if raw_ok {
+        let _ = disable_raw_mode();
+        // Réinitialise les couleurs après l'exécution
+        let _ = execute!(io::stdout(), ResetColor);
+    }
+}
+
+/// Exécute le programme en redirigeant la sortie vers `output` (tests, pipes).
+/// Les commandes console (COLOR, LOCATE, CLS …) sont des no-ops.
+pub fn run_with_output(program: &Program, output: &mut dyn Write) {
+    let mut state = State::new();
+    // console_enabled reste false : toutes les opérations terminal sont ignorées
+    run_internal(program, output, &mut state);
 }
