@@ -1,5 +1,7 @@
+use std::cell::Cell;
 use std::collections::HashMap;
 use std::io::{self, Write};
+use std::time::{SystemTime, UNIX_EPOCH};
 use crate::ast::*;
 
 // ---------------------------------------------------------------------------
@@ -84,6 +86,7 @@ struct State {
     str_dims:    HashMap<String, usize>,
     num_arrays:  HashMap<String, ArrayData<Value>>,
     str_arrays:  HashMap<String, ArrayData<String>>,
+    rng_seed:    Cell<u64>,
 }
 
 impl State {
@@ -94,7 +97,25 @@ impl State {
             str_dims:   HashMap::new(),
             num_arrays: HashMap::new(),
             str_arrays: HashMap::new(),
+            rng_seed:   Cell::new(0),
         }
+    }
+
+    /// Générateur pseudo-aléatoire (LCG 64 bits) — retourne un flottant dans [0, 1).
+    fn next_rnd(&self) -> f64 {
+        let mut s = self.rng_seed.get();
+        s = s.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        self.rng_seed.set(s);
+        // Extrait 53 bits pour un f64 dans [0, 1)
+        (s >> 11) as f64 / (1u64 << 53) as f64
+    }
+
+    /// Retourne le nombre de secondes depuis l'epoch Unix.
+    fn timer() -> f64 {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64()
     }
 
     fn assign(&mut self, var: &str, value: &Expr) {
@@ -200,6 +221,10 @@ impl State {
                 let f = self.eval_num(&args[0]).to_f64();
                 Some(Value::Float(f))
             }
+            "RND" => {
+                // RND() ou RND(n) : génère le prochain nombre aléatoire dans [0, 1)
+                Some(Value::Float(self.next_rnd()))
+            }
             _ => None,
         }
     }
@@ -270,6 +295,18 @@ impl State {
                 assert_eq!(args.len(), 1, "RTRIM$ attend 1 argument");
                 Some(self.eval_str(&args[0]).trim_end().to_string())
             }
+            "STRING$" => {
+                assert_eq!(args.len(), 2, "STRING$ attend 2 arguments");
+                let n = self.eval_num(&args[0]).to_i64().max(0) as usize;
+                // 2e arg : chaîne (on prend le 1er caractère) ou entier (code ASCII)
+                let ch = if Self::is_string_expr(&args[1]) {
+                    self.eval_str(&args[1]).chars().next().unwrap_or('\0')
+                } else {
+                    let code = self.eval_num(&args[1]).to_i64() as u32;
+                    char::from_u32(code).unwrap_or('\0')
+                };
+                Some(ch.to_string().repeat(n))
+            }
             _ => None,
         }
     }
@@ -283,7 +320,11 @@ impl State {
             Expr::Integer(n) => Value::Int(*n),
             Expr::Float(f)   => Value::Float(*f),
             Expr::Variable(name) if !name.ends_with('$') => {
-                self.num_vars.get(name).cloned().unwrap_or(Value::Int(0))
+                match name.as_str() {
+                    "RND"   => Value::Float(self.next_rnd()),
+                    "TIMER" => Value::Float(Self::timer()),
+                    _       => self.num_vars.get(name).cloned().unwrap_or(Value::Int(0)),
+                }
             }
             Expr::ArrayAccess { name, indices } if !name.ends_with('$') => {
                 if let Some(result) = self.num_builtin(name, indices) {
@@ -711,6 +752,20 @@ fn exec_stmt(
                 saved_str_vars: std::mem::replace(&mut state.str_vars, new_str_vars),
             });
             body_start
+        }
+
+        Statement::Sleep { duration } => {
+            let secs = state.eval_num(duration).to_f64().max(0.0);
+            let millis = (secs * 1000.0) as u64;
+            std::thread::sleep(std::time::Duration::from_millis(millis));
+            pc + 1
+        }
+
+        Statement::Randomize { seed } => {
+            let v = state.eval_num(seed).to_f64();
+            // On utilise les bits bruts du flottant pour initialiser le seed
+            state.rng_seed.set(v.to_bits());
+            pc + 1
         }
     }
 }

@@ -658,3 +658,32 @@ fn test_float_print() {
         panic!("Expected Print");
     }
 }
+
+// --- SLEEP ---
+
+#[test]
+fn test_sleep_entier() {
+    let s = stmt("SLEEP 2");
+    assert!(matches!(s, Statement::Sleep { duration: Expr::Integer(2) }));
+}
+
+#[test]
+fn test_sleep_expression() {
+    let s = stmt("SLEEP N");
+    assert!(matches!(s, Statement::Sleep { duration: Expr::Variable(ref v) } if v == "N"));
+}
+
+// --- RANDOMIZE ---
+
+#[test]
+fn test_randomize_entier() {
+    let s = stmt("RANDOMIZE 42");
+    assert!(matches!(s, Statement::Randomize { seed: Expr::Integer(42) }));
+}
+
+#[test]
+fn test_randomize_timer() {
+    // TIMER est lu comme une variable
+    let s = stmt("RANDOMIZE TIMER");
+    assert!(matches!(s, Statement::Randomize { seed: Expr::Variable(ref v) } if v == "TIMER"));
+}
