@@ -9,6 +9,29 @@ fn integer() -> impl Parser<char, i64, Error = Simple<char>> {
     text::int(10).map(|s: String| s.parse::<i64>().unwrap())
 }
 
+// Parses an integer or a float literal.
+// "3.14" → Expr::Float(3.14), "42" → Expr::Integer(42)
+fn number() -> impl Parser<char, Expr, Error = Simple<char>> {
+    text::int(10)
+        .then(
+            just('.')
+                .ignore_then(
+                    filter(|c: &char| c.is_ascii_digit())
+                        .repeated()
+                        .at_least(1)
+                        .collect::<String>()
+                )
+                .or_not()
+        )
+        .map(|(int_part, frac_opt): (String, Option<String>)| {
+            if let Some(frac) = frac_opt {
+                Expr::Float(format!("{}.{}", int_part, frac).parse::<f64>().unwrap())
+            } else {
+                Expr::Integer(int_part.parse::<i64>().unwrap())
+            }
+        })
+}
+
 fn string_lit() -> impl Parser<char, String, Error = Simple<char>> {
     just('"')
         .ignore_then(none_of('"').repeated())
@@ -38,7 +61,7 @@ fn expr() -> impl Parser<char, Expr, Error = Simple<char>> {
     recursive(|expr_rec| {
         // --- atom ---
         let atom = string_lit().map(Expr::StringLit)
-            .or(integer().map(Expr::Integer))
+            .or(number())
             .or(var_name()
                 .then(
                     hspace()

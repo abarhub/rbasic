@@ -18,6 +18,7 @@ pub enum Op {
 #[derive(Debug, Clone)]
 pub enum Expr {
     Integer(i64),
+    Float(f64),
     StringLit(String),
     Variable(String),
     ArrayAccess { name: String, indices: Vec<Expr> },
