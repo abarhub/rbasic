@@ -875,3 +875,26 @@ fn test_multistatement_rem_consomme_tout() {
     assert_eq!(v.len(), 1);
     assert!(matches!(v[0], Statement::Rem));
 }
+
+// --- Fichier programme.bas complet ---
+
+#[test]
+fn test_parse_programme_bas_complet() {
+    // Vérifie que programme.bas est parsé jusqu'au bout sans s'arrêter prématurément.
+    // Le fichier contient ~80 lignes logiques (SCREEN, WIDTH, FOR, GOSUB, IF, etc.).
+    let src = include_str!("../programmes/programme.bas");
+    let program = rbasic::parser::parse(src.trim())
+        .expect("programme.bas doit parser sans erreur");
+    assert!(
+        program.lines.len() >= 80,
+        "Attendu ≥ 80 lignes parsées, obtenu {} — arrêt prématuré du parseur ?",
+        program.lines.len()
+    );
+    // Vérifie la présence de quelques instructions clés
+    let has_randomize = program.lines.iter().any(|l| matches!(l.statement, Statement::Randomize { .. }));
+    let has_for       = program.lines.iter().any(|l| matches!(l.statement, Statement::For { .. }));
+    let has_gosub     = program.lines.iter().any(|l| matches!(l.statement, Statement::Gosub(_)));
+    assert!(has_randomize, "RANDOMIZE manquant dans le programme parsé");
+    assert!(has_for,       "FOR manquant dans le programme parsé");
+    assert!(has_gosub,     "GOSUB manquant dans le programme parsé");
+}

@@ -39,14 +39,25 @@ fn strip_line_comment(line: &str) -> &str {
 }
 
 /// Retourne true si la ligne est une définition de label (ex: "monLabel:").
-/// Un label est un identifiant pur (lettres, chiffres, '_') suivi de ':', sans espace ni opérateur.
+/// Un label est un identifiant pur (lettres, chiffres, '_') suivi de ':', sans espace ni
+/// opérateur, et qui n'est pas un mot-clé BASIC (CLS, BEEP, RETURN, etc.).
 fn is_label_line(line: &str) -> bool {
     let t = line.trim();
     if !t.ends_with(':') {
         return false;
     }
     let name = &t[..t.len() - 1];
-    !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_')
+    if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_') {
+        return false;
+    }
+    // Les mots-clés BASIC ne sont jamais des définitions de label
+    const KEYWORDS: &[&str] = &[
+        "CLS", "BEEP", "RETURN", "WEND", "ELSE", "END", "ENDIF", "ENDSUB",
+        "SCREEN", "WIDTH", "KEY", "RANDOMIZE", "SLEEP", "NEXT", "LOOP",
+        "PRINT", "LET", "DIM", "GOTO", "GOSUB", "CALL", "SUB", "FOR",
+        "WHILE", "DO", "IF", "THEN", "REM", "INPUT", "COLOR", "LOCATE",
+    ];
+    !KEYWORDS.iter().any(|&kw| name.eq_ignore_ascii_case(kw))
 }
 
 /// Supprime les lignes commençant par '$' (directives de préprocesseur QBasic),
