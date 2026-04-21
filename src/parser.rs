@@ -25,10 +25,26 @@ fn normalize_case(src: &str) -> String {
     result
 }
 
-/// Supprime les lignes commençant par '$' (directives de préprocesseur QBasic).
+/// Supprime la portion commentaire d'une ligne (après `'` non inclus dans un littéral string).
+fn strip_line_comment(line: &str) -> &str {
+    let mut in_string = false;
+    for (i, c) in line.char_indices() {
+        match c {
+            '"' => in_string = !in_string,
+            '\'' if !in_string => return line[..i].trim_end(),
+            _ => {}
+        }
+    }
+    line
+}
+
+/// Supprime les lignes commençant par '$' (directives de préprocesseur QBasic)
+/// et les commentaires `'` (apostrophe) en fin de ligne ou sur toute une ligne.
 fn preprocess(src: &str) -> String {
     src.lines()
         .filter(|line| !line.trim_start().starts_with('$'))
+        .map(|line| strip_line_comment(line))
+        .filter(|line| !line.trim().is_empty())
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -314,9 +330,13 @@ fn print_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
 }
 
 fn rem_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
-    text::keyword("REM")
-        .ignore_then(filter(|c: &char| *c != '\n' && *c != '\r').repeated())
-        .to(Statement::Rem)
+    // REM keyword
+    let rem_kw = text::keyword("REM")
+        .ignore_then(filter(|c: &char| *c != '\n' && *c != '\r').repeated());
+    // Apostrophe inline comment : ' ...
+    let apostrophe = just('\'')
+        .ignore_then(filter(|c: &char| *c != '\n' && *c != '\r').repeated());
+    rem_kw.or(apostrophe).to(Statement::Rem)
 }
 
 fn jump_target() -> impl Parser<char, JumpTarget, Error = Simple<char>> {
