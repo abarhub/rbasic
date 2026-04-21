@@ -103,7 +103,7 @@ endif
     End If
 Else
     ' fin de la boucle principale
-    'delay 10000
+    delay 10000
     'Sleep 1
     GoTo 80
 End If
