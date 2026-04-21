@@ -468,6 +468,20 @@ fn call_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
         .map(|(name, args)| Statement::Call { name, args })
 }
 
+/// Appel implicite de sous-programme sans mot-clé CALL : `delay 10000`, `maSub a, b`
+/// Doit être essayé EN DERNIER pour ne pas capturer les affectations ou labels.
+fn implicit_call_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
+    text::ident()
+        .then_ignore(hspace())
+        .then(
+            expr()
+                .then_ignore(hspace())
+                .separated_by(just(',').then_ignore(hspace()))
+                .at_least(1)
+        )
+        .map(|(name, args)| Statement::Call { name, args })
+}
+
 fn label_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
     text::ident()
         .then_ignore(hspace())
@@ -739,6 +753,7 @@ fn statement() -> impl Parser<char, Statement, Error = Simple<char>> {
             .or(array_set_stmt())
             .or(label_stmt())
             .or(assign_stmt())
+            .or(implicit_call_stmt())
     })
 }
 
