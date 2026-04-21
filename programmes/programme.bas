@@ -104,7 +104,7 @@ endif
 Else
     ' fin de la boucle principale
     'delay 10000
-    delay 0.5
+    delay 0.2
     'Sleep 1
     GoTo 80
 End If
