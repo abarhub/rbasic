@@ -396,10 +396,12 @@ fn sub_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
 }
 
 fn end_sub_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
-    text::keyword("END")
+    // Reconnaît "END SUB" (avec espace) et "ENDSUB" (sans espace)
+    let two_words = text::keyword("END")
         .ignore_then(hspace())
-        .ignore_then(text::keyword("SUB"))
-        .to(Statement::EndSub)
+        .ignore_then(text::keyword("SUB"));
+    let one_word = text::keyword("ENDSUB");
+    two_words.or(one_word).to(Statement::EndSub)
 }
 
 fn declare_sub_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
@@ -621,10 +623,12 @@ fn else_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
 }
 
 fn end_if_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
-    text::keyword("END")
+    // Reconnaît "END IF" (avec espace) et "ENDIF" (sans espace)
+    let two_words = text::keyword("END")
         .ignore_then(hspace())
-        .ignore_then(text::keyword("IF"))
-        .to(Statement::EndIf)
+        .ignore_then(text::keyword("IF"));
+    let one_word = text::keyword("ENDIF");
+    two_words.or(one_word).to(Statement::EndIf)
 }
 
 fn end_stmt() -> impl Parser<char, Statement, Error = Simple<char>> {
