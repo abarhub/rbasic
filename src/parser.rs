@@ -38,15 +38,37 @@ fn strip_line_comment(line: &str) -> &str {
     line
 }
 
-/// Supprime les lignes commençant par '$' (directives de préprocesseur QBasic)
-/// et les commentaires `'` (apostrophe) en fin de ligne ou sur toute une ligne.
+/// Retourne true si la ligne est une définition de label (ex: "monLabel:").
+/// Un label est un identifiant pur (lettres, chiffres, '_') suivi de ':', sans espace ni opérateur.
+fn is_label_line(line: &str) -> bool {
+    let t = line.trim();
+    if !t.ends_with(':') {
+        return false;
+    }
+    let name = &t[..t.len() - 1];
+    !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || c == '_')
+}
+
+/// Supprime les lignes commençant par '$' (directives de préprocesseur QBasic),
+/// les commentaires `'`, et le `:` final inutile (continuation QBasic sans
+/// instruction après — chaque ligne physique reste une ligne logique indépendante).
 fn preprocess(src: &str) -> String {
-    src.lines()
-        .filter(|line| !line.trim_start().starts_with('$'))
-        .map(|line| strip_line_comment(line))
-        .filter(|line| !line.trim().is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
+    let result: Vec<&str> = src
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('$'))
+        .filter_map(|raw| {
+            // Supprimer les commentaires apostrophe et les espaces de fin
+            let s = strip_line_comment(raw).trim_end();
+            // Supprimer le ':' final s'il ne fait pas partie d'une définition de label
+            let s = if s.ends_with(':') && !is_label_line(s) {
+                s[..s.len() - 1].trim_end()
+            } else {
+                s
+            };
+            if s.trim().is_empty() { None } else { Some(s) }
+        })
+        .collect();
+    result.join("\n")
 }
 
 // ---------------------------------------------------------------------------
