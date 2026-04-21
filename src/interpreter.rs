@@ -6,7 +6,7 @@ use crate::ast::*;
 
 use crossterm::{
     cursor::MoveTo,
-    event::{poll, read, Event, KeyCode},
+    event::{poll, read, Event, KeyCode, KeyModifiers},
     execute,
     style::{ResetColor, SetBackgroundColor, SetForegroundColor, Color as CtColor},
     terminal::{Clear, ClearType, disable_raw_mode, enable_raw_mode},
@@ -699,10 +699,32 @@ fn qbasic_color(n: u8) -> CtColor {
     }
 }
 
+/// Vérifie si Ctrl+C est disponible dans le buffer d'événements et quitte si c'est le cas.
+/// À appeler périodiquement dans les boucles longues (DO/LOOP, FOR) pour permettre
+/// à l'utilisateur de quitter le programme même en mode raw.
+fn check_ctrl_c() {
+    if poll(Duration::ZERO).unwrap_or(false) {
+        if let Ok(Event::Key(k)) = read() {
+            if k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL) {
+                let _ = disable_raw_mode();
+                std::process::exit(0);
+            }
+        }
+    }
+}
+
 fn poll_inkey() -> String {
     if poll(Duration::ZERO).unwrap_or(false) {
         match read() {
-            Ok(Event::Key(key_event)) => match key_event.code {
+            Ok(Event::Key(key_event)) => {
+                // Ctrl+C → quitter proprement même en mode raw
+                if key_event.code == KeyCode::Char('c')
+                    && key_event.modifiers.contains(KeyModifiers::CONTROL)
+                {
+                    let _ = disable_raw_mode();
+                    std::process::exit(0);
+                }
+                match key_event.code {
                 KeyCode::Char(c)   => c.to_string(),
                 KeyCode::Enter     => "\r".to_string(),
                 KeyCode::Esc       => "\x1b".to_string(),
@@ -722,7 +744,8 @@ fn poll_inkey() -> String {
                     format!("\x00{}", char::from(58 + n))
                 }
                 _ => String::new(),
-            },
+                }
+            }
             _ => String::new(),
         }
     } else {
@@ -1064,6 +1087,8 @@ fn exec_stmt(
         }
 
         Statement::Loop { post_cond } => {
+            // Permettre à l'utilisateur de quitter avec Ctrl+C même dans les boucles longues
+            if state.console_enabled { check_ctrl_c(); }
             let do_pc = do_stack.pop()
                 .unwrap_or_else(|| panic!("LOOP sans DO correspondant"));
             let loop_again = match post_cond {
