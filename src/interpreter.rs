@@ -403,7 +403,14 @@ impl State {
                                 Op::Add => li + ri,
                                 Op::Sub => li - ri,
                                 Op::Mul => li * ri,
-                                Op::Mod => li % ri,
+                                // QBasic MOD utilise la division par plancher (Int(x/y)),
+                                // pas la division tronquée de Rust.
+                                // Ex : (-3) MOD 4 = 1 en QBasic, = -3 en Rust.
+                                Op::Mod => {
+                                    let r = li % ri;
+                                    // Si r et ri ont des signes opposés, on corrige
+                                    if r != 0 && (r < 0) != (ri < 0) { r + ri } else { r }
+                                }
                                 _ => unreachable!(),
                             })
                         }
@@ -714,7 +721,11 @@ fn check_ctrl_c() {
 }
 
 fn poll_inkey() -> String {
-    if poll(Duration::ZERO).unwrap_or(false) {
+    // On attend jusqu'à 5ms par appel : émule la lenteur du CPU DOS original.
+    // Dans un programme comme Tetris, la boucle "For i=1 To 40 : InKey$ : Next"
+    // est censée durer ~200ms (40 × 5ms), pas 0ms comme sur un CPU moderne.
+    // Si une touche est déjà disponible, poll() retourne immédiatement.
+    if poll(Duration::from_millis(5)).unwrap_or(false) {
         match read() {
             Ok(Event::Key(key_event)) => {
                 // Ctrl+C → quitter proprement même en mode raw
