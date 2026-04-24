@@ -706,6 +706,15 @@ fn qbasic_color(n: u8) -> CtColor {
     }
 }
 
+/// Quitte proprement : remet la couleur par défaut, désactive le mode raw,
+/// va à la ligne pour que le prompt shell apparaisse correctement.
+fn clean_exit() -> ! {
+    let _ = execute!(io::stdout(), ResetColor);
+    let _ = disable_raw_mode();
+    println!();
+    std::process::exit(0);
+}
+
 /// Vérifie si Ctrl+C est disponible dans le buffer d'événements et quitte si c'est le cas.
 /// À appeler périodiquement dans les boucles longues (DO/LOOP, FOR) pour permettre
 /// à l'utilisateur de quitter le programme même en mode raw.
@@ -713,8 +722,7 @@ fn check_ctrl_c() {
     if poll(Duration::ZERO).unwrap_or(false) {
         if let Ok(Event::Key(k)) = read() {
             if k.code == KeyCode::Char('c') && k.modifiers.contains(KeyModifiers::CONTROL) {
-                let _ = disable_raw_mode();
-                std::process::exit(0);
+                clean_exit();
             }
         }
     }
@@ -732,8 +740,7 @@ fn poll_inkey() -> String {
                 if key_event.code == KeyCode::Char('c')
                     && key_event.modifiers.contains(KeyModifiers::CONTROL)
                 {
-                    let _ = disable_raw_mode();
-                    std::process::exit(0);
+                    clean_exit();
                 }
                 match key_event.code {
                 KeyCode::Char(c)   => c.to_string(),
