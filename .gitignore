@@ -5,3 +5,4 @@
 justfile
 
 .claude/settings.local.json
+/.claude/worktrees/goofy-mirzakhani-4b999f/.claude/settings.local.json
