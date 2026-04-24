@@ -1210,18 +1210,39 @@ fn run_internal(program: &Program, output: &mut dyn Write, state: &mut State) {
     }
 }
 
+/// Retourne true si le programme utilise des commandes console qui nécessitent
+/// le mode raw (CLS, COLOR, LOCATE, SCREEN, BEEP, KEY, INKEY$).
+fn program_uses_console(program: &Program) -> bool {
+    program.lines.iter().any(|l| matches!(l.statement,
+        Statement::Cls
+        | Statement::Color   { .. }
+        | Statement::Locate  { .. }
+        | Statement::Screen  { .. }
+        | Statement::Beep
+        | Statement::Key
+    ))
+}
+
 pub fn run(program: &Program) {
     let mut state = State::new();
-    state.console_enabled = true;
-    let raw_ok = enable_raw_mode().is_ok();
-    {
-        let mut out = RawOutput(io::stdout());
+    if program_uses_console(program) {
+        // Mode console : raw mode + conversion \n→\r\n + reset couleur à la fin
+        state.console_enabled = true;
+        let raw_ok = enable_raw_mode().is_ok();
+        {
+            let mut out = RawOutput(io::stdout());
+            run_internal(program, &mut out, &mut state);
+            let _ = out.flush();
+        }
+        if raw_ok {
+            let _ = disable_raw_mode();
+            let _ = execute!(io::stdout(), ResetColor);
+        }
+    } else {
+        // Mode normal : sortie standard sans échappements ANSI
+        let mut out = io::stdout();
         run_internal(program, &mut out, &mut state);
         let _ = out.flush();
-    }
-    if raw_ok {
-        let _ = disable_raw_mode();
-        let _ = execute!(io::stdout(), ResetColor);
     }
 }
 
